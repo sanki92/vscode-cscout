@@ -1,0 +1,142 @@
+{
+  "name": "vscode-cscout",
+  "displayName": "CScout — C Source Code Analyzer",
+  "description": "VS Code frontend for the CScout C source code analyzer and refactoring browser",
+  "version": "0.1.0",
+  "publisher": "cscout",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dspinellis/cscout"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:cscout.connectToServer",
+    "onCommand:cscout.showMetrics",
+    "onCommand:cscout.showCallGraph",
+    "onCommand:cscout.findUnusedIdentifiers",
+    "workspaceContains:**/*.cs"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cscout.showMetrics",
+        "title": "CScout: Show File Metrics"
+      },
+      {
+        "command": "cscout.showCallGraph",
+        "title": "CScout: Show Call Graph"
+      },
+      {
+        "command": "cscout.resetCallGraph",
+        "title": "Show All Functions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "cscout.findUnusedIdentifiers",
+        "title": "CScout: Find Unused Identifiers"
+      },
+      {
+        "command": "cscout.connectToServer",
+        "title": "CScout: Connect to Running Server"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cscout-explorer",
+          "title": "CScout",
+          "icon": "$(symbol-class)"
+        }
+      ]
+    },
+    "views": {
+      "cscout-explorer": [
+        {
+          "id": "cscout.projectsView",
+          "name": "Projects"
+        },
+        {
+          "id": "cscout.metricsView",
+          "name": "File Metrics"
+        },
+        {
+          "id": "cscout.identifiersView",
+          "name": "Identifiers"
+        },
+        {
+          "id": "cscout.callGraphView",
+          "name": "Call Graph"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CScout",
+      "properties": {
+        "cscout.serverHost": {
+          "type": "string",
+          "default": "localhost",
+          "description": "Hostname of the running CScout server"
+        },
+        "cscout.serverPort": {
+          "type": "number",
+          "default": 8081,
+          "description": "Port of the running CScout server (default: 8081)"
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "cscout.showMetrics",
+          "when": "resourceLangId == c",
+          "group": "cscout"
+        },
+        {
+          "command": "cscout.showCallGraph",
+          "when": "resourceLangId == c",
+          "group": "cscout"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "cscout.resetCallGraph",
+          "when": "view == cscout.callGraphView",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "server": "npx ts-node src/scripts/mockServer.ts",
+    "test": "npm run compile && mocha out/test/**/*.test.js --timeout 10000",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.11.0",
+    "@types/sql.js": "^1.4.9",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "chai": "^6.2.2",
+    "eslint": "^8.56.0",
+    "mocha": "^11.7.5",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "sql.js": "^1.14.0"
+  }
+}
