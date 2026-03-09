@@ -1,5 +1,13 @@
 # vscode-cscout
 
+> A VS Code frontend for [CScout](https://github.com/dspinellis/cscout), the C source code analyzer and refactoring browser.
+
+## Demo
+
+<!-- TODO: Add demo video/GIF here -->
+*Coming soon — a short walkthrough showing connect, sidebar browsing, hover info, go-to-definition, and diagnostics in action.*
+
+---
 
 ## The Idea
 
@@ -34,7 +42,11 @@ The mock server is scaffolding. The extension itself is written so that swapping
 - **File Metrics**: lines, statements, operators, nesting depth, unique identifiers per file; right-click inside any open C file → *Show File Metrics* to reveal it in the sidebar
 - **Identifier Browser**: all identifiers grouped by kind (functions, macros, typedefs, struct tags, struct members, variables); expand any entry to see every source location with one-click navigation
 - **Call Graph**: expand any function to drill into its callers and callees; place cursor on a function name and right-click → *Show Call Graph* to focus on it
-- **Find Unused Identifiers**: lists everything CScout marks as unused
+- **Hover Info**: hover on any C identifier and get a tooltip showing its kind (function, macro, typedef, etc.), whether it's unused, and whether it's from a read-only header
+- **Go-to-Definition**: Ctrl+Click on any identifier to jump to all its definition locations across the project (returns all locations, not just the first one)
+- **Diagnostics**: unused identifiers show up as warnings in VS Code's Problems panel automatically after connecting
+- **Find Unused Identifiers**: lists everything CScout marks as unused in the output panel
+- **Disconnect / Refresh**: disconnect from the server or refresh all analysis data without reconnecting
 
 ---
 
@@ -103,8 +115,9 @@ src/
 │   ├── cscoutServer.ts         # HTTP client for CScout's REST API
 │   └── cscoutService.ts        # CScout process launcher (cscout -s sqlite)
 ├── providers/
-│   ├── definitionProvider.ts   # Go-to-definition (skeleton)
-│   └── diagnosticsProvider.ts  # Unused identifiers + complexity warnings
+│   ├── definitionProvider.ts   # Go-to-definition via REST API
+│   ├── diagnosticsProvider.ts  # Unused identifier warnings in Problems panel
+│   └── hoverProvider.ts        # Hover tooltips: kind, unused status, EID
 ├── views/
 │   ├── projectsTree.ts         # Project/file explorer
 │   ├── metricsTree.ts          # Per-file metrics panel
@@ -131,9 +144,7 @@ This POC covers the VS Code extension side. The larger part of the work is on th
 
 - **REST endpoints in CScout C++**: implementing the `/api/…` handlers in `src/cscout.cpp` using CScout's existing internal data structures
 - **`RenameProvider`**: fetch all locations for an identifier's equivalence class, show a diff preview, apply the workspace edit atomically
-- **`HoverProvider`**: show on hover: identifier type, number of uses, whether it's unused
 - **`CodeLensProvider`**: inline codelens showing call counts, fan-in, complexity
-- **`DefinitionProvider`**: fully wired (the skeleton exists; needs the REST location endpoint)
 - **WebView call graph**: a proper interactive graph visualization beyond the tree view
 - **Testing on real projects**: validation against large C codebases (e.g., the sample `awk` project included with CScout)
 

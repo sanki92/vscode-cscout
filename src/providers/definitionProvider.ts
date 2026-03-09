@@ -38,14 +38,17 @@ export class IdentifierDefinitionProvider implements vscode.DefinitionProvider {
             const locations = await server.getIdentifierLocations(id.eid);
             if (locations.length === 0) { return undefined; }
 
-            return locations
-                .filter(loc => {
-                    try { return fs.existsSync(loc.file); } catch { return false; }
-                })
-                .map(loc => new vscode.Location(
-                    vscode.Uri.file(loc.file),
-                    new vscode.Position(Math.max(0, loc.line - 1), Math.max(0, loc.col))
-                ));
+            // Return only the first valid location (the definition site)
+            // so VS Code jumps directly instead of showing a peek popup.
+            const loc = locations.find(l => {
+                try { return fs.existsSync(l.file); } catch { return false; }
+            });
+            if (!loc) { return undefined; }
+
+            return new vscode.Location(
+                vscode.Uri.file(loc.file),
+                new vscode.Position(Math.max(0, loc.line - 1), Math.max(0, loc.col))
+            );
         } catch {
             return undefined;
         }
