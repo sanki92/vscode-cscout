@@ -4,8 +4,7 @@
 
 ## Demo
 
-<!-- TODO: Add demo video/GIF here -->
-*Coming soon — a short walkthrough showing connect, sidebar browsing, hover info, go-to-definition, and diagnostics in action.*
+[![CScout VS Code Extension Demo](https://img.youtube.com/vi/eaO7j1sIIhA/maxresdefault.jpg)](https://www.youtube.com/watch?v=eaO7j1sIIhA)
 
 ---
 
