@@ -19,6 +19,8 @@
   ],
   "activationEvents": [
     "onCommand:cscout.connectToServer",
+    "onCommand:cscout.disconnect",
+    "onCommand:cscout.refresh",
     "onCommand:cscout.showMetrics",
     "onCommand:cscout.showCallGraph",
     "onCommand:cscout.findUnusedIdentifiers",
@@ -47,6 +49,15 @@
       {
         "command": "cscout.connectToServer",
         "title": "CScout: Connect to Running Server"
+      },
+      {
+        "command": "cscout.disconnect",
+        "title": "CScout: Disconnect from Server"
+      },
+      {
+        "command": "cscout.refresh",
+        "title": "CScout: Refresh Analysis Data",
+        "icon": "$(sync)"
       }
     ],
     "viewsContainers": {

@@ -56,6 +56,12 @@ export class MetricsTreeProvider implements vscode.TreeDataProvider<Item> {
         this._onDidChange.fire(undefined);
     }
 
+    clear() {
+        this.files = [];
+        this.fileItems = [];
+        this._onDidChange.fire(undefined);
+    }
+
     findFile(filePath: string): FileMetricItem | undefined {
         const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
         const normPath = norm(filePath);

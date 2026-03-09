@@ -45,6 +45,13 @@ export class ProjectsTreeProvider implements vscode.TreeDataProvider<TreeItem> {
         this._onDidChange.fire(undefined);
     }
 
+    clear() {
+        this.db = undefined;
+        this.serverProjects = [];
+        this.serverFilesMap.clear();
+        this._onDidChange.fire(undefined);
+    }
+
     loadData(
         projects: { pid: number; name: string }[],
         filesMap: Map<number, { fid: number; name: string; readonly: boolean }[]>,

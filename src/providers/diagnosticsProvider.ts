@@ -1,67 +1,48 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { CScoutDatabase } from '../db/cscoutDatabase';
+import { CScoutServer, ServerIdentifier } from '../services/cscoutServer';
 
 const DIAG_COLLECTION = vscode.languages.createDiagnosticCollection('cscout');
 
 export class CScoutDiagnostics {
-    static refresh(db: CScoutDatabase) {
+    static async refresh(server: CScoutServer) {
         DIAG_COLLECTION.clear();
 
         const diagMap = new Map<string, vscode.Diagnostic[]>();
 
-        // Unused identifiers
-        const unused = db.getUnusedIdentifiers();
+        // Unused identifiers via REST
+        let unused: ServerIdentifier[];
+        try {
+            unused = await server.getIdentifiers({ unused: true });
+        } catch {
+            return;
+        }
+
         for (const id of unused) {
-            const locs = db.getIdentifierLocations(id.eid);
-            for (const loc of locs) {
-                if (!fs.existsSync(loc.filePath)) { continue; }
+            let locations;
+            try {
+                locations = await server.getIdentifierLocations(id.eid);
+            } catch {
+                continue;
+            }
+
+            for (const loc of locations) {
+                if (!fs.existsSync(loc.file)) { continue; }
 
                 const range = new vscode.Range(
-                    loc.line - 1, loc.column,
-                    loc.line - 1, loc.column + id.name.length
+                    Math.max(0, loc.line - 1), Math.max(0, loc.col),
+                    Math.max(0, loc.line - 1), Math.max(0, loc.col + id.name.length)
                 );
 
                 const diag = new vscode.Diagnostic(
                     range,
-                    `Unused identifier: '${id.name}'`,
+                    `Unused identifier: '${id.name}' (CScout whole-program analysis)`,
                     vscode.DiagnosticSeverity.Warning,
                 );
                 diag.source = 'CScout';
                 diag.code = 'unused-identifier';
 
-                const key = loc.filePath;
-                if (!diagMap.has(key)) { diagMap.set(key, []); }
-                diagMap.get(key)!.push(diag);
-            }
-        }
-
-        // High cyclomatic complexity
-        const functions = db.getFunctions(5000);
-        for (const fn of functions) {
-            if (!fn.defined) { continue; }
-            const metrics = db.getFunctionMetrics(fn.id);
-            if (!metrics) { continue; }
-
-            const ccycl = (metrics as any).CCYCL1;
-            if (typeof ccycl === 'number' && ccycl > 15) {
-                const loc = db.getFunctionLocation(fn.id);
-                if (!loc || !fs.existsSync(loc.filePath)) { continue; }
-
-                const range = new vscode.Range(
-                    loc.line - 1, loc.column,
-                    loc.line - 1, loc.column + fn.name.length
-                );
-
-                const diag = new vscode.Diagnostic(
-                    range,
-                    `High cyclomatic complexity: ${fn.name}() = ${ccycl} (threshold: 15)`,
-                    vscode.DiagnosticSeverity.Information,
-                );
-                diag.source = 'CScout';
-                diag.code = 'high-complexity';
-
-                const key = loc.filePath;
+                const key = loc.file;
                 if (!diagMap.has(key)) { diagMap.set(key, []); }
                 diagMap.get(key)!.push(diag);
             }

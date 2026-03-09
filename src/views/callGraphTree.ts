@@ -88,6 +88,13 @@ export class CallGraphTreeProvider implements vscode.TreeDataProvider<Item> {
         this._onDidChange.fire(undefined);
     }
 
+    clear() {
+        this.db = undefined;
+        this.server = undefined;
+        this.rootFunctions = [];
+        this._onDidChange.fire(undefined);
+    }
+
     getTreeItem(element: Item): vscode.TreeItem {
         return element;
     }

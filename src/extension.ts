@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import { CScoutServer } from "./services/cscoutServer";
 import { IdentifierDefinitionProvider } from "./providers/definitionProvider";
+import { CScoutHoverProvider } from "./providers/hoverProvider";
+import { CScoutDiagnostics } from "./providers/diagnosticsProvider";
 import { ProjectsTreeProvider } from "./views/projectsTree";
 import { MetricsTreeProvider, FileMetricItem } from "./views/metricsTree";
 import { IdentifiersTreeProvider } from "./views/identifiersTree";
@@ -16,6 +18,8 @@ export function activate(context: vscode.ExtensionContext) {
   const metricsTree = new MetricsTreeProvider();
   const identifiersTree = new IdentifiersTreeProvider();
   const callGraphTree = new CallGraphTreeProvider();
+  const hoverProvider = new CScoutHoverProvider(() => server);
+  const definitionProvider = new IdentifierDefinitionProvider(() => server);
 
   vscode.window.registerTreeDataProvider("cscout.projectsView", projectsTree);
   const metricsView = vscode.window.createTreeView("cscout.metricsView", {
@@ -180,6 +184,8 @@ export function activate(context: vscode.ExtensionContext) {
         metricsTree,
         identifiersTree,
         callGraphTree,
+        hoverProvider,
+        definitionProvider,
       );
     }),
   );
@@ -187,8 +193,47 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerDefinitionProvider(
       { scheme: "file", language: "c" },
-      new IdentifierDefinitionProvider(() => undefined),
+      definitionProvider,
     ),
+    vscode.languages.registerHoverProvider(
+      { language: "c" },
+      hoverProvider,
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cscout.disconnect", () => {
+      server = undefined;
+      projectsTree.clear();
+      metricsTree.clear();
+      identifiersTree.clear();
+      callGraphTree.clear();
+      hoverProvider.updateCache([]);
+      definitionProvider.updateCache([]);
+      CScoutDiagnostics.clear();
+      vscode.window.showInformationMessage("CScout: Disconnected from server.");
+      outputChannel.appendLine("Disconnected.");
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("cscout.refresh", async () => {
+      if (!server) {
+        vscode.window.showWarningMessage(
+          'Not connected to a CScout server. Use "CScout: Connect to Server" first.',
+        );
+        return;
+      }
+      await loadFromServer(
+        outputChannel,
+        projectsTree,
+        metricsTree,
+        identifiersTree,
+        callGraphTree,
+        hoverProvider,
+        definitionProvider,
+      );
+    }),
   );
 
   outputChannel.appendLine(
@@ -202,6 +247,8 @@ async function loadFromServer(
   metricsTree: MetricsTreeProvider,
   identifiersTree: IdentifiersTreeProvider,
   callGraphTree: CallGraphTreeProvider,
+  hoverProvider: CScoutHoverProvider,
+  definitionProvider: IdentifierDefinitionProvider,
 ) {
   if (!server) {
     return;
@@ -252,6 +299,11 @@ async function loadFromServer(
           metricsTree.loadData(metricsFiles);
           identifiersTree.loadData(identifiers, server!);
           callGraphTree.loadData(functions, server!);
+          hoverProvider.updateCache(identifiers);
+          definitionProvider.updateCache(identifiers);
+
+          progress.report({ message: "Computing diagnostics…" });
+          await CScoutDiagnostics.refresh(server!);
 
           outputChannel.appendLine(
             `REST API: ${identifiers.length} identifiers, ${files.length} files, ${functions.length} functions`,

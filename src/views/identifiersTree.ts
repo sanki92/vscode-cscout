@@ -99,6 +99,13 @@ export class IdentifiersTreeProvider implements vscode.TreeDataProvider<Item> {
         this._onDidChange.fire(undefined);
     }
 
+    clear() {
+        this.db = undefined;
+        this.server = undefined;
+        this.identifiers = [];
+        this._onDidChange.fire(undefined);
+    }
+
     getTreeItem(element: Item): vscode.TreeItem {
         return element;
     }
