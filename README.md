@@ -1,10 +1,8 @@
 # vscode-cscout
 
-> A VS Code frontend for [CScout](https://github.com/dspinellis/cscout), the C source code analyzer and refactoring browser.
-
 ## Demo
 
-[![CScout VS Code Extension Demo](https://img.youtube.com/vi/eaO7j1sIIhA/maxresdefault.jpg)](https://www.youtube.com/watch?v=eaO7j1sIIhA)
+[![CScout VS Code Extension Demo](https://img.youtube.com/vi/eaO7j1sIIhA/0.jpg)](https://www.youtube.com/watch?v=eaO7j1sIIhA)
 
 ---
 
