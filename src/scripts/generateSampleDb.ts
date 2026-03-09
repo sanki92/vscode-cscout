@@ -246,6 +246,8 @@ async function main() {
         [1, findOffset(mainC,  'argv'),         202],
         [1, findOffset(mainC,  'calc_add'),     101],
         [1, findOffset(mainC,  'calc_sub'),     102],
+        [1, findOffset(mainC,  'calc_mul'),     103],
+        [1, findOffset(mainC,  'calc_div'),     104],
         [1, findOffset(mainC,  'print_result'), 105],
 
         [2, findOffset(calcC,  'calc_add'),     101],

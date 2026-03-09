@@ -38,12 +38,25 @@ export class IdentifierDefinitionProvider implements vscode.DefinitionProvider {
             const locations = await server.getIdentifierLocations(id.eid);
             if (locations.length === 0) { return undefined; }
 
-            // Return only the first valid location (the definition site)
-            // so VS Code jumps directly instead of showing a peek popup.
-            const loc = locations.find(l => {
+            const currentFile = document.uri.fsPath;
+            const currentLine = position.line + 1; // 1-based
+
+            // Filter to valid, existing files
+            const valid = locations.filter(l => {
                 try { return fs.existsSync(l.file); } catch { return false; }
             });
-            if (!loc) { return undefined; }
+            if (valid.length === 0) { return undefined; }
+
+            // Prefer a location in a DIFFERENT file (the actual definition),
+            // or at least a different line. When Ctrl+Clicking a usage in
+            // main.c, we don't want to jump to that same line in main.c.
+            const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+            const curNorm = norm(currentFile);
+
+            const other = valid.find(l =>
+                norm(l.file) !== curNorm || l.line !== currentLine
+            );
+            const loc = other ?? valid[0];
 
             return new vscode.Location(
                 vscode.Uri.file(loc.file),
