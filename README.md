@@ -91,7 +91,7 @@ The mock server loads `sample/sample-cscout.db` (a small synthetic C project, an
 
 > **Note:** Running against a real CScout binary is not possible yet, CScout doesn't expose REST endpoints. Adding those endpoints to CScout's C++ source is the core deliverable of the GSoC project.
 
-### Tests
+### Tests (Generated using AI)
 
 ```bash
 npm test
