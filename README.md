@@ -4,68 +4,79 @@
 
 [![CScout VS Code Extension Demo](https://img.youtube.com/vi/eaO7j1sIIhA/0.jpg)](https://www.youtube.com/watch?v=eaO7j1sIIhA)
 
----
-
 ## The Idea
 
-CScout already does the hard work: it parses whole C programs, builds equivalence classes of identifiers across files, computes metrics, and tracks every token location. What it lacks is a modern IDE interface. Right now its only UI is a web browser pointed at its built-in HTTP server, navigating plain HTML pages.
+CScout parses whole C programs, builds equivalence classes of identifiers across files, computes metrics, and tracks every token location. Its only UI today is a browser pointed at its built-in SWILL HTTP server. This project adds a proper VS Code interface on top of a new REST API layer.
 
-The goal of this project is to give CScout a proper VS Code interface, so you can explore cross-references, jump to definitions, see call graphs, and get diagnostics all inside the editor, without leaving it.
+## How It Works
 
----
+```mermaid
+flowchart LR
+    subgraph ext[VS Code Extension]
+        direction TB
+        trees[Tree Views]
+        hover[Hover Provider]
+        defn[Definition Provider]
+        diag[Diagnostics]
+    end
 
-## How It Would Work (the Real Flow)
+    subgraph cscout[CScout Process]
+        direction TB
+        api["restapi.cpp (9 endpoints)"]
+        swill[SWILL HTTP Server]
+        mem[In-memory Analysis]
+        api --> swill --> mem
+    end
 
-In the actual GSoC implementation:
+    ext <-->|"JSON over HTTP :8081"| cscout
+```
 
-1. You run CScout on your C project as usual (`cscout make.cs`), it starts its HTTP server on port 8081
-2. You open that project folder in VS Code
-3. You run **CScout: Connect to Running Server** in the command palette
-4. The extension queries CScout via REST endpoints and populates the sidebar
-
-The extension talks to CScout **only over HTTP**. It never touches any database file directly. CScout answers queries from its own in-memory data structures. The VS Code side doesn't need to know anything about CScout's internals.
-
----
+1. Run CScout on your C project (`cscout your-workspace.cs`). It starts listening on port 8081.
+2. Open the project folder in VS Code.
+3. Run **CScout: Connect to Running Server** from the command palette.
+4. The extension probes `/api/projects`. If the REST API exists, it loads data into the sidebar. If not, it falls back to HTML scraping.
 
 ## What This POC Demonstrates
 
-CScout doesn't have REST endpoints yet, that's what needs to be built in C++ as the core GSoC work. So this POC includes a **mock server** that simulates those endpoints using a sample SQLite database, allowing the full extension experience to be demonstrated on any machine without a running CScout binary.
+Two parts:
 
-The mock server is scaffolding. The extension itself is written so that swapping the mock for a real CScout binary requires **zero changes** to the TypeScript code, they speak the same HTTP contract.
+1. **REST API endpoints** in CScout's C++ source ([`feat/rest-api` branch](https://github.com/sanki92/cscout/tree/feat/rest-api)). A self-contained `restapi.cpp` registers 9 JSON endpoints with SWILL.
+2. **VS Code extension** consuming those endpoints.
 
-### What you can try right now
+A **mock server** backed by a sample SQLite DB lets you try the full UI without compiling CScout. The mock and real CScout serve the same `/api/...` endpoints, so the extension code is identical in both cases. The mock is a dev/test fixture only.
 
-- **Project Explorer**: browse the sample project's files grouped by project
-- **File Metrics**: lines, statements, operators, nesting depth, unique identifiers per file; right-click inside any open C file → *Show File Metrics* to reveal it in the sidebar
-- **Identifier Browser**: all identifiers grouped by kind (functions, macros, typedefs, struct tags, struct members, variables); expand any entry to see every source location with one-click navigation
-- **Call Graph**: expand any function to drill into its callers and callees; place cursor on a function name and right-click → *Show Call Graph* to focus on it
-- **Hover Info**: hover on any C identifier and get a tooltip showing its kind (function, macro, typedef, etc.), whether it's unused, and whether it's from a read-only header
-- **Go-to-Definition**: Ctrl+Click on any identifier to jump to all its definition locations across the project (returns all locations, not just the first one)
-- **Diagnostics**: unused identifiers show up as warnings in VS Code's Problems panel automatically after connecting
-- **Find Unused Identifiers**: lists everything CScout marks as unused in the output panel
-- **Disconnect / Refresh**: disconnect from the server or refresh all analysis data without reconnecting
+### Features
 
----
+| Feature | Mock | Real CScout |
+|---|---|---|
+| Project Explorer | Yes | Yes |
+| File Metrics | Yes | Yes |
+| Identifier Browser (grouped by kind, clickable locations) | Yes | Yes |
+| Call Graph (callers/callees tree) | Yes | Yes |
+| Hover (identifier kind, unused, readonly) | Yes | Yes |
+| Go-to-Definition (F12 / Ctrl+Click) | Yes (exact column) | Yes (line-level) |
+| Diagnostics (unused identifiers in Problems panel) | Yes | Yes |
+| Find Unused Identifiers | Yes | Yes |
 
-## Proposed REST API
+Go-to-Definition in real mode jumps to the correct file and line. Column-level precision will be added in a future iteration.
 
-These are the endpoints this POC implements in the mock server and that would need to be added to CScout's C++ source:
+## REST API Endpoints
+
+Implemented in `restapi.cpp`, consumed by the extension:
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/identifiers` | All identifiers with type flags |
-| `GET /api/identifiers?unused=true` | Filtered to unused identifiers |
-| `GET /api/identifiers/:eid` | Single identifier by equivalence class ID |
-| `GET /api/identifiers/:eid/locations` | Every token location: `[{file, line, col}]` |
-| `GET /api/files` | All files in the analysis |
-| `GET /api/files/:fid/metrics` | File-level metrics (NLINE, NSTMT, NOP, …) |
-| `GET /api/functions` | All functions |
-| `GET /api/functions/:id/callers` | Functions that call this one |
-| `GET /api/functions/:id/callees` | Functions this one calls |
-| `GET /api/projects` | All projects in the workspace |
-| `GET /api/projects/:pid/files` | Files belonging to a project |
+| `GET /api/projects` | All projects |
+| `GET /api/project_files?pid=N` | Files in project N |
+| `GET /api/files` | All files. Filters: `writable`, `pid`, `limit`, `offset` |
+| `GET /api/filemetrics?fid=N` | Per-file metrics |
+| `GET /api/identifiers` | All identifiers. Filters: `unused`, `writable`, `limit`, `offset` |
+| `GET /api/identifier?eid=N` | Single identifier + token locations |
+| `GET /api/functions` | All functions. Filters: `defined`, `limit`, `offset` |
+| `GET /api/function?id=N` | Single function + `callers`/`callees` |
+| `GET /api/source?fid=N` | Source lines as JSON array |
 
----
+All endpoints return `application/json`. Query parameters used throughout (SWILL does not support path parameters).
 
 ## Setup
 
@@ -75,75 +86,111 @@ npm install
 npm run compile
 ```
 
-### Run With the Mock Server
+### Mock server
 
 ```bash
-# Terminal 1: start the mock server
-npm run server
-
-# Terminal 2: launch the extension in a VS Code dev window
-code --extensionDevelopmentPath="$(pwd)"
+npm run server          # Terminal 1: starts mock on :8081
+code --extensionDevelopmentPath="$(pwd)"  # Terminal 2: dev window
 ```
 
-Then press `Ctrl+Shift+P` → **CScout: Connect to Running Server**.
+Then run **CScout: Connect to Running Server**. The mock loads `sample/sample-cscout.db` (~96 KB, a small arithmetic calculator project).
 
-The mock server loads `sample/sample-cscout.db` (a small synthetic C project, an arithmetic calculator) and serves all `/api/…` endpoints from it.
+### Real CScout
 
-> **Note:** Running against a real CScout binary is not possible yet, CScout doesn't expose REST endpoints. Adding those endpoints to CScout's C++ source is the core deliverable of the GSoC project.
+```bash
+git clone https://github.com/sanki92/cscout && cd cscout
+git checkout feat/rest-api
+make
+cd example && ../src/cscout awk.cs
+```
+
+Then connect from VS Code. Cygwin (`/cygdrive/f/...`) and WSL (`/mnt/f/...`) paths are automatically normalized to Windows paths.
 
 ### Tests (Generated using AI)
 
 ```bash
-npm test
+npm test   # 47 tests: DB layer, HTTP client, REST endpoint contracts
 ```
-
-47 tests covering the database query layer, the HTTP client, and all REST endpoints.
-
----
 
 ## Project Structure
 
+### CScout C++ (REST API layer)
+
 ```
 src/
-├── extension.ts                # Entry point, commands, tree view wiring
-├── db/
-│   └── cscoutDatabase.ts       # Direct SQLite access (sql.js/WASM), used in tests
-├── services/
-│   ├── cscoutServer.ts         # HTTP client for CScout's REST API
-│   └── cscoutService.ts        # CScout process launcher (cscout -s sqlite)
-├── providers/
-│   ├── definitionProvider.ts   # Go-to-definition via REST API
-│   ├── diagnosticsProvider.ts  # Unused identifier warnings in Problems panel
-│   └── hoverProvider.ts        # Hover tooltips: kind, unused status, EID
-├── views/
-│   ├── projectsTree.ts         # Project/file explorer
-│   ├── metricsTree.ts          # Per-file metrics panel
-│   ├── identifiersTree.ts      # Identifier browser by category
-│   └── callGraphTree.ts        # Function call graph view
-├── scripts/
-│   ├── mockServer.ts           # Mock CScout server for development/demo
-│   └── generateSampleDb.ts     # Generates sample/sample-cscout.db from sample C files
-└── test/
-    ├── cscoutDatabase.test.ts  # 20 tests DB query layer
-    ├── cscoutServer.test.ts    # 10 tests HTTP client and HTML parsers
-    └── jsonEndpoint.test.ts    # 17 tests REST endpoint contract
-sample/
-├── calc/                       # Sample C project (arithmetic calculator)
-│   ├── main.c, calc.c, calc.h, utils.c, utils.h
-└── sample-cscout.db            # Pre-generated SQLite database for the sample project
+├── restapi.h          # Declares rest_api_register()
+├── restapi.cpp        # 9 endpoint handlers, ID maps, JSON helpers
+│   ├── json_escape()          RFC 8259 escaping (U+0000..U+001F)
+│   ├── build_id_maps()        stable integer IDs for Eclass*/Call*
+│   ├── api_projects()         GET /api/projects
+│   ├── api_project_files()    GET /api/project_files?pid=N
+│   ├── api_files()            GET /api/files
+│   ├── api_file_metrics()     GET /api/filemetrics?fid=N
+│   ├── api_identifiers()      GET /api/identifiers
+│   ├── api_identifier()       GET /api/identifier?eid=N
+│   ├── api_functions()        GET /api/functions
+│   ├── api_function()         GET /api/function?id=N
+│   ├── api_source()           GET /api/source?fid=N
+│   └── rest_api_register()    registers all handlers with swill_handle()
+├── cscout.cpp         # +1 include, +1 function call
+└── Makefile           # +restapi.o in link step
 ```
 
----
+SWILL CRLF fix (6 lines in `swill/Source/SWILL/web.c`) is committed separately in the swill submodule.
 
-## What Remains for the Actual GSoC Project
+### VS Code Extension
 
-This POC covers the VS Code extension side. The larger part of the work is on the CScout side:
+```
+vscode-cscout/
+├── package.json
+├── src/
+│   ├── extension.ts           # Entry point, commands, REST vs HTML mode branching
+│   ├── services/
+│   │   └── cscoutServer.ts    # HTTP client (HTTP-first, TCP fallback on transport error)
+│   ├── db/
+│   │   └── cscoutDatabase.ts  # sql.js/WASM SQLite for mock + tests
+│   ├── providers/
+│   │   ├── definitionProvider.ts   # F12 / Ctrl+Click
+│   │   ├── diagnosticsProvider.ts  # Unused identifiers in Problems panel
+│   │   └── hoverProvider.ts        # Hover tooltips
+│   ├── views/
+│   │   ├── projectsTree.ts    # Projects -> files tree
+│   │   ├── metricsTree.ts     # Per-file metrics
+│   │   ├── identifiersTree.ts # Identifiers grouped by kind
+│   │   └── callGraphTree.ts   # Callers/callees tree
+│   ├── scripts/
+│   │   ├── mockServer.ts      # Express mock server (dev/demo only)
+│   │   └── generateSampleDb.ts
+│   └── test/                  # 47 tests across 3 suites
+└── sample/
+    ├── calc/                  # Sample C project
+    └── sample-cscout.db
+```
 
-- **REST endpoints in CScout C++**: implementing the `/api/…` handlers in `src/cscout.cpp` using CScout's existing internal data structures
-- **`RenameProvider`**: fetch all locations for an identifier's equivalence class, show a diff preview, apply the workspace edit atomically
-- **`CodeLensProvider`**: inline codelens showing call counts, fan-in, complexity
-- **WebView call graph**: a proper interactive graph visualization beyond the tree view
-- **Testing on real projects**: validation against large C codebases (e.g., the sample `awk` project included with CScout)
+## What Remains for GSoC
 
----
+- **RenameProvider**: workspace-wide rename via equivalence class locations
+- **CodeLensProvider**: inline call counts, fan-in, cyclomatic complexity
+- **Column-level precision**: return column offsets from the C++ API
+- **WebView call graph**: interactive visualization beyond the tree view
+- **Function metrics endpoint**: per-function metrics alongside file metrics
 
+## Design Decisions
+
+**Separate module.** All endpoints live in `restapi.cpp`. The only change to `cscout.cpp` is one `#include` and one call to `rest_api_register()`. Small diff against upstream, independently reviewable.
+
+**Stable integer IDs.** CScout uses `Eclass*` and `Call*` pointers internally. Exposing raw addresses would be ASLR-dependent and non-portable. `build_id_maps()` assigns sequential integers on first use, stable for the process lifetime.
+
+**Stateless project scoping.** The original web UI sets a global `current_project` server-side. The REST API uses `?pid=N` per request instead, so concurrent clients don't interfere.
+
+**Pagination.** `?limit=N&offset=M` on collection endpoints. The extension fetches in bounded pages with a progress indicator.
+
+**SWILL CRLF fix.** SWILL's `swill_dump_page()` used `\n` in HTTP response headers; RFC 7230 requires `\r\n`. Patched in `swill/Source/SWILL/web.c` (6 lines). The extension uses Node's `http` module as primary transport, with a raw TCP fallback that accepts both `\r\n` and `\n` for environments where SWILL hasn't been rebuilt. HTTP-level errors (400, 404) are not retried over TCP.
+
+**HTML fallback.** If `/api/projects` doesn't exist (stock CScout without the REST patch), the extension falls back to scraping HTML pages. Works with any CScout installation today.
+
+**Cygwin/WSL path normalization.** CScout under Cygwin/WSL returns `/cygdrive/f/...` or `/mnt/f/...` paths. Normalized to Windows drive paths automatically (win32 only, no-op on Linux).
+
+**Input validation.** Every endpoint validates ID parameters and returns `400`/`404` with a JSON error body.
+
+**RFC 8259 JSON escaping.** `json_escape()` covers the full U+0000..U+001F control range.
