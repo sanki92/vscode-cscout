@@ -136,7 +136,7 @@ src/
 └── Makefile           # +restapi.o in link step
 ```
 
-SWILL CRLF fix (6 lines in `swill/Source/SWILL/web.c`) is committed separately in the swill submodule.
+SWILL CRLF fix (6 lines in `swill/Source/SWILL/web.c`) is committed separately in SWILL: [sanki92/swill fix/crlf-http-headers](https://github.com/sanki92/swill/tree/fix/crlf-http-headers).
 
 ### VS Code Extension
 
@@ -185,7 +185,7 @@ vscode-cscout/
 
 **Pagination.** `?limit=N&offset=M` on collection endpoints. The extension fetches in bounded pages with a progress indicator.
 
-**SWILL CRLF fix.** SWILL's `swill_dump_page()` used `\n` in HTTP response headers; RFC 7230 requires `\r\n`. Patched in `swill/Source/SWILL/web.c` (6 lines). The extension uses Node's `http` module as primary transport, with a raw TCP fallback that accepts both `\r\n` and `\n` for environments where SWILL hasn't been rebuilt. HTTP-level errors (400, 404) are not retried over TCP.
+**SWILL CRLF fix.** SWILL's `swill_dump_page()` used `\n` in HTTP response headers; RFC 7230 requires `\r\n`. Patched in `swill/Source/SWILL/web.c` (6 lines), branch: [sanki92/swill fix/crlf-http-headers](https://github.com/sanki92/swill/tree/fix/crlf-http-headers). The extension uses Node's `http` module as primary transport, with a raw TCP fallback that accepts both `\r\n` and `\n` for environments where SWILL hasn't been rebuilt. HTTP-level errors (400, 404) are not retried over TCP.
 
 **HTML fallback.** If `/api/projects` doesn't exist (stock CScout without the REST patch), the extension falls back to scraping HTML pages. Works with any CScout installation today.
 
