@@ -1,69 +1,128 @@
-import * as vscode from 'vscode';
-import * as fs from 'fs';
-import { CScoutServer, ServerIdentifier } from '../services/cscoutServer';
+import * as vscode from "vscode";
+import * as fs from "fs";
+import { CScoutServer, ServerIdentifier } from "../services/cscoutServer";
 
 export class IdentifierDefinitionProvider implements vscode.DefinitionProvider {
-    private _cache = new Map<string, ServerIdentifier>();
-    private _getServer: () => CScoutServer | undefined;
+  private _cache = new Map<string, ServerIdentifier[]>();
+  private _getServer: () => CScoutServer | undefined;
 
-    constructor(getServer: () => CScoutServer | undefined) {
-        this._getServer = getServer;
+  constructor(getServer: () => CScoutServer | undefined) {
+    this._getServer = getServer;
+  }
+
+  updateCache(identifiers: ServerIdentifier[]): void {
+    this._cache.clear();
+    for (const id of identifiers) {
+      const bucket = this._cache.get(id.name) ?? [];
+      bucket.push(id);
+      this._cache.set(id.name, bucket);
+    }
+  }
+
+  async provideDefinition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    _token: vscode.CancellationToken,
+  ): Promise<vscode.Definition | undefined> {
+    const server = this._getServer();
+    if (!server || this._cache.size === 0) {
+      return undefined;
     }
 
-    updateCache(identifiers: ServerIdentifier[]): void {
-        this._cache.clear();
-        for (const id of identifiers) {
-            this._cache.set(id.name, id);
+    const wordRange = document.getWordRangeAtPosition(position);
+    if (!wordRange) {
+      return undefined;
+    }
+
+    const word = document.getText(wordRange);
+    if (!word) {
+      return undefined;
+    }
+
+    const ids = this._cache.get(word);
+    if (!ids || ids.length === 0) {
+      return undefined;
+    }
+
+    try {
+      const currentFile = document.uri.fsPath;
+      const currentLine = position.line + 1;
+      const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+      const workspacePaths = workspaceFolders.map((f) =>
+        f.uri.fsPath.replace(/\\/g, "/").toLowerCase(),
+      );
+
+      const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+      const curNorm = norm(currentFile);
+
+      let bestLoc: { file: string; line: number; col: number } | undefined;
+      let bestScore = Number.NEGATIVE_INFINITY;
+
+      for (const id of ids.slice(0, 12)) {
+        const locations = await server.getIdentifierLocations(id.eid);
+        if (locations.length === 0) {
+          continue;
         }
-    }
 
-    async provideDefinition(
-        document: vscode.TextDocument,
-        position: vscode.Position,
-        _token: vscode.CancellationToken,
-    ): Promise<vscode.Definition | undefined> {
-        const server = this._getServer();
-        if (!server || this._cache.size === 0) { return undefined; }
+        for (const loc of locations) {
+          const valid = (() => {
+            try {
+              return fs.existsSync(loc.file);
+            } catch {
+              return false;
+            }
+          })();
+          if (!valid) {
+            continue;
+          }
 
-        const wordRange = document.getWordRangeAtPosition(position);
-        if (!wordRange) { return undefined; }
+          const fileNorm = norm(loc.file);
+          const sameFile = fileNorm === curNorm;
+          const sameLine = loc.line === currentLine;
+          const inWorkspace =
+            workspacePaths.length === 0
+              ? true
+              : workspacePaths.some((w) => fileNorm.startsWith(w));
 
-        const word = document.getText(wordRange);
-        if (!word) { return undefined; }
+          if (sameFile && sameLine) {
+            continue;
+          }
 
-        const id = this._cache.get(word);
-        if (!id) { return undefined; }
+          let score = 0;
+          if (!sameFile) {
+            score += 2000;
+            if (inWorkspace) {
+              score += 500;
+            }
+            if (fileNorm.endsWith(".h")) {
+              score += 200;
+            }
+          } else {
+            score += 500;
+            const distance = Math.abs(loc.line - currentLine);
+            score += Math.max(0, 300 - distance);
+          }
 
-        try {
-            const locations = await server.getIdentifierLocations(id.eid);
-            if (locations.length === 0) { return undefined; }
-
-            const currentFile = document.uri.fsPath;
-            const currentLine = position.line + 1; // 1-based
-
-            // Filter to valid, existing files
-            const valid = locations.filter(l => {
-                try { return fs.existsSync(l.file); } catch { return false; }
-            });
-            if (valid.length === 0) { return undefined; }
-
-            // Prefer a location in a DIFFERENT file (the actual definition),
-            // or at least a different line. When Ctrl+Clicking a usage in
-            // main.c, we don't want to jump to that same line in main.c.
-            const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
-            const curNorm = norm(currentFile);
-
-            const other = valid.find(l =>
-                norm(l.file) !== curNorm || l.line !== currentLine
-            );
-            const loc = other ?? valid[0];
-
-            return new vscode.Location(
-                vscode.Uri.file(loc.file),
-                new vscode.Position(Math.max(0, loc.line - 1), Math.max(0, loc.col))
-            );
-        } catch {
-            return undefined;
+          if (score > bestScore) {
+            bestScore = score;
+            bestLoc = loc;
+          }
         }
+      }
+
+      if (!bestLoc) {
+        return undefined;
+      }
+
+      return new vscode.Location(
+        vscode.Uri.file(bestLoc.file),
+        new vscode.Position(
+          Math.max(0, bestLoc.line - 1),
+          Math.max(0, bestLoc.col),
+        ),
+      );
+    } catch {
+      return undefined;
     }
+  }
 }

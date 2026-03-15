@@ -10,6 +10,55 @@ import { CallGraphTreeProvider } from "./views/callGraphTree";
 
 let server: CScoutServer | undefined;
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) {
+    return [];
+  }
+  const results = new Array<R>(items.length);
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const current = index;
+      index++;
+      if (current >= items.length) {
+        break;
+      }
+      results[current] = await worker(items[current]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function fetchPaged<T>(
+  pageSize: number,
+  maxItems: number,
+  fetchPage: (offset: number, limit: number) => Promise<T[]>,
+): Promise<T[]> {
+  const out: T[] = [];
+  let offset = 0;
+  while (out.length < maxItems) {
+    const limit = Math.min(pageSize, maxItems - out.length);
+    if (limit <= 0) {
+      break;
+    }
+    const page = await fetchPage(offset, limit);
+    if (!page.length) {
+      break;
+    }
+    out.push(...page);
+    if (page.length < limit) {
+      break;
+    }
+    offset += page.length;
+  }
+  return out;
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel("CScout");
   outputChannel.appendLine("CScout extension activated.");
@@ -174,10 +223,12 @@ export function activate(context: vscode.ExtensionContext) {
             `Make sure CScout is running (e.g. cscout <workspace.cs>).`,
         );
         server = undefined;
+        vscode.commands.executeCommand('setContext', 'cscout.connected', false);
         return;
       }
 
       outputChannel.appendLine("Connected to CScout server.");
+      vscode.commands.executeCommand('setContext', 'cscout.connected', true);
       await loadFromServer(
         outputChannel,
         projectsTree,
@@ -204,6 +255,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("cscout.disconnect", () => {
       server = undefined;
+      vscode.commands.executeCommand('setContext', 'cscout.connected', false);
       projectsTree.clear();
       metricsTree.clear();
       identifiersTree.clear();
@@ -261,38 +313,62 @@ async function loadFromServer(
         title: "CScout: Loading from server…",
       },
       async (progress) => {
+        const cfg = vscode.workspace.getConfiguration("cscout");
+        const pageSize = Math.max(50, cfg.get<number>("initialLoadPageSize", 500));
+        const maxIdentifiers = Math.max(
+          pageSize,
+          cfg.get<number>("initialLoadMaxIdentifiers", 5000),
+        );
+        const maxFiles = Math.max(pageSize, cfg.get<number>("initialLoadMaxFiles", 3000));
+        const maxFunctions = Math.max(
+          pageSize,
+          cfg.get<number>("initialLoadMaxFunctions", 4000),
+        );
+
         const mode = await server!.getMode();
         outputChannel.appendLine(`Server mode: ${mode}`);
 
         if (mode === "rest") {
-          progress.report({ message: "Fetching data (REST)…" });
+          progress.report({ message: "Fetching data (REST, paged)…" });
           const [identifiers, files, functions, projects] = await Promise.all([
-            server!.getIdentifiers(),
-            server!.getFiles(),
-            server!.getFunctions(),
+            fetchPaged(pageSize, maxIdentifiers, (offset, limit) =>
+              server!.getIdentifiers({ limit, offset }),
+            ),
+            fetchPaged(pageSize, maxFiles, (offset, limit) =>
+              server!.getFiles({ limit, offset }),
+            ),
+            fetchPaged(pageSize, maxFunctions, (offset, limit) =>
+              server!.getFunctions({ limit, offset }),
+            ),
             server!.getProjects(),
           ]);
 
           progress.report({ message: "Fetching file metrics…" });
-          const metricsFiles = await Promise.all(
-            files.map((f) =>
+          const metricsFiles = await mapWithConcurrency(
+            files,
+            6,
+            async (f) =>
               server!
                 .getFileMetrics(f.fid)
                 .then((m) => ({ name: f.name, metrics: m }))
                 .catch(() => ({ name: f.name, metrics: {} })),
-            ),
           );
 
           progress.report({ message: "Fetching project files…" });
+          const projectFiles = await mapWithConcurrency(
+            projects,
+            4,
+            async (proj) => ({
+              pid: proj.pid,
+              files: await server!.getProjectFiles(proj.pid).catch(() => []),
+            }),
+          );
           const projectFilesMap = new Map<
             number,
             { fid: number; name: string; readonly: boolean }[]
           >();
-          for (const proj of projects) {
-            const pFiles = await server!
-              .getProjectFiles(proj.pid)
-              .catch(() => []);
-            projectFilesMap.set(proj.pid, pFiles);
+          for (const entry of projectFiles) {
+            projectFilesMap.set(entry.pid, entry.files);
           }
 
           projectsTree.loadData(projects, projectFilesMap);
@@ -308,6 +384,9 @@ async function loadFromServer(
           outputChannel.appendLine(
             `REST API: ${identifiers.length} identifiers, ${files.length} files, ${functions.length} functions`,
           );
+          outputChannel.appendLine(
+            `Paged load limits: pageSize=${pageSize}, maxIdentifiers=${maxIdentifiers}, maxFiles=${maxFiles}, maxFunctions=${maxFunctions}`,
+          );
           vscode.window.showInformationMessage(
             `CScout server: ${identifiers.length} identifiers, ${files.length} files, ${functions.length} functions`,
           );
@@ -316,11 +395,16 @@ async function loadFromServer(
           const files = await server!.getAllFiles();
           const functions = await server!.getDefinedFunctions();
 
+          identifiersTree.loadData(identifiers, server!);
+          callGraphTree.loadData(functions, server!);
+          hoverProvider.updateCache(identifiers);
+          definitionProvider.updateCache(identifiers);
+
           outputChannel.appendLine(
             `HTML scrape: ${identifiers.length} identifiers, ${files.length} files, ${functions.length} functions`,
           );
           vscode.window.showInformationMessage(
-            `CScout server (HTML): ${identifiers.length} identifiers, ${files.length} files, ${functions.length} functions`,
+            `CScout server (HTML): ${identifiers.length} identifiers, ${files.length} files — project view and metrics not available without REST API`,
           );
         }
       },
