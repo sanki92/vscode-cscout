@@ -6,10 +6,21 @@ type TreeItem = ProjectItem | FileItem;
 
 class ProjectItem extends vscode.TreeItem {
     constructor(public readonly project: CScoutProject) {
-        super(project.name, vscode.TreeItemCollapsibleState.Collapsed);
+        const label = (!project.name || project.name === 'unspecified')
+            ? '(read-only / system headers)'
+            : project.name;
+        super(label, vscode.TreeItemCollapsibleState.Collapsed);
         this.contextValue = 'cscout.project';
         this.iconPath = new vscode.ThemeIcon('project', new vscode.ThemeColor('charts.purple'));
     }
+}
+
+function toVscodeUri(filePath: string): vscode.Uri {
+    const wslMatch = filePath.match(/^\/mnt\/([a-z])\/(.*)/);
+    if (wslMatch) {
+        return vscode.Uri.file(`${wslMatch[1].toUpperCase()}:\\${wslMatch[2].replace(/\//g, '\\')}`);
+    }
+    return vscode.Uri.file(filePath);
 }
 
 class FileItem extends vscode.TreeItem {
@@ -25,7 +36,7 @@ class FileItem extends vscode.TreeItem {
         this.command = {
             command: 'vscode.open',
             title: 'Open File',
-            arguments: [vscode.Uri.file(file.name)],
+            arguments: [toVscodeUri(file.name)],
         };
     }
 }

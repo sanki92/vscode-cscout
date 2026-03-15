@@ -4,15 +4,15 @@ import type { CScoutServer, ServerFunction } from '../services/cscoutServer';
 
 function serverFnToCScout(sf: ServerFunction): CScoutFunction {
     return {
-        id: sf.id as any,
+        id: sf.id,
         name: sf.name,
         isMacro: false,
         defined: true,
         declared: true,
-        fileScoped: sf.isStatic,
+        fileScoped: sf.isFileScoped,
         fid: 0,
         foffset: 0,
-        fanin: 0,
+        fanin: sf.fanin,
     };
 }
 

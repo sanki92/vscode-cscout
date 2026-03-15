@@ -42,18 +42,6 @@ function queryDb(db: SqlJsDatabase, sql: string): Record<string, any>[] {
     });
 }
 
-/** Simple route matcher for /api/things/:id/sub patterns. */
-function matchRoute(pathname: string, pattern: string): Record<string, string> | null {
-    const pp = pattern.split('/');
-    const parts = pathname.split('/');
-    if (pp.length !== parts.length) { return null; }
-    const params: Record<string, string> = {};
-    for (let i = 0; i < pp.length; i++) {
-        if (pp[i].startsWith(':')) { params[pp[i].slice(1)] = parts[i]; }
-        else if (pp[i] !== parts[i]) { return null; }
-    }
-    return params;
-}
 
 describe('REST API Endpoints (/api/...)', () => {
 
@@ -91,10 +79,19 @@ describe('REST API Endpoints (/api/...)', () => {
                     return;
                 }
 
-                // /api/identifiers/:eid/locations
-                let params = matchRoute(pathname, '/api/identifiers/:eid/locations');
-                if (params) {
-                    json(queryDb(db,
+                // /api/identifier?eid=N — single identifier with inline locations
+                if (pathname === '/api/identifier') {
+                    const eidParam = url.searchParams.get('eid');
+                    if (!eidParam) { json({ error: 'Missing eid' }, 400); return; }
+                    const eid = parseInt(eidParam, 10);
+                    const rows = queryDb(db,
+                        `SELECT EID as eid, NAME as name, UNUSED as unused, MACRO as macro,
+                                FUN as fun, TYPEDEF as typedef, SUETAG as suetag,
+                                SUMEMBER as sumember, ORDINARY as ordinary, READONLY as readonly
+                         FROM IDS WHERE EID=${eid}`);
+                    if (!rows.length) { json({ error: 'Not found' }, 404); return; }
+                    const obj = rows[0];
+                    obj.locations = queryDb(db,
                         `SELECT t.FID as fid, t.FOFFSET as offset, f.NAME as file,
                                 lp.LNUM as line,
                                 (t.FOFFSET - lp.FOFFSET) as col
@@ -105,20 +102,8 @@ describe('REST API Endpoints (/api/...)', () => {
                                  SELECT MAX(FOFFSET) FROM LINEPOS
                                  WHERE FID = t.FID AND FOFFSET <= t.FOFFSET
                              )
-                         WHERE t.EID=${params.eid} ORDER BY t.FID, t.FOFFSET`));
-                    return;
-                }
-
-                // /api/identifiers/:eid
-                params = matchRoute(pathname, '/api/identifiers/:eid');
-                if (params) {
-                    const rows = queryDb(db,
-                        `SELECT EID as eid, NAME as name, UNUSED as unused, MACRO as macro,
-                                FUN as fun, TYPEDEF as typedef, SUETAG as suetag,
-                                SUMEMBER as sumember, ORDINARY as ordinary, READONLY as readonly
-                         FROM IDS WHERE EID=${params.eid}`);
-                    if (!rows.length) { json({ error: 'Not found' }, 404); }
-                    else { json(rows[0]); }
+                         WHERE t.EID=${eid} ORDER BY t.FID, t.FOFFSET`);
+                    json(obj);
                     return;
                 }
 
@@ -131,13 +116,15 @@ describe('REST API Endpoints (/api/...)', () => {
                     return;
                 }
 
-                // /api/files/:fid/metrics
-                params = matchRoute(pathname, '/api/files/:fid/metrics');
-                if (params) {
+                // /api/filemetrics?fid=N
+                if (pathname === '/api/filemetrics') {
+                    const fidParam = url.searchParams.get('fid');
+                    if (!fidParam) { json({ error: 'Missing fid' }, 400); return; }
+                    const fid = parseInt(fidParam, 10);
                     const rows = queryDb(db,
-                        `SELECT * FROM FILEMETRICS WHERE FID=${params.fid} AND PRECPP=0`);
-                    if (!rows.length) { json({ error: 'No metrics' }, 404); }
-                    else { json(rows[0]); }
+                        `SELECT * FROM FILEMETRICS WHERE FID=${fid} AND PRECPP=0`);
+                    if (!rows.length) { json({ error: 'No metrics' }, 404); return; }
+                    json({ fid, name: '', metrics: rows[0] });
                     return;
                 }
 
@@ -150,23 +137,24 @@ describe('REST API Endpoints (/api/...)', () => {
                     return;
                 }
 
-                // /api/functions/:id/callers
-                params = matchRoute(pathname, '/api/functions/:id/callers');
-                if (params) {
-                    json(queryDb(db,
-                        `SELECT src.ID as id, src.NAME as name
-                         FROM FCALLS fc JOIN FUNCTIONS src ON src.ID=fc.SOURCEID
-                         WHERE fc.DESTID=${params.id} ORDER BY src.NAME`));
-                    return;
-                }
-
-                // /api/functions/:id/callees
-                params = matchRoute(pathname, '/api/functions/:id/callees');
-                if (params) {
-                    json(queryDb(db,
-                        `SELECT dst.ID as id, dst.NAME as name
-                         FROM FCALLS fc JOIN FUNCTIONS dst ON dst.ID=fc.DESTID
-                         WHERE fc.SOURCEID=${params.id} ORDER BY dst.NAME`));
+                // /api/function?id=N&callers=1 or &callees=1
+                if (pathname === '/api/function') {
+                    const idParam = url.searchParams.get('id');
+                    if (!idParam) { json({ error: 'Missing id' }, 400); return; }
+                    const funcId = parseInt(idParam, 10);
+                    if (url.searchParams.get('callers') === '1') {
+                        json(queryDb(db,
+                            `SELECT src.ID as id, src.NAME as name
+                             FROM FCALLS fc JOIN FUNCTIONS src ON src.ID=fc.SOURCEID
+                             WHERE fc.DESTID=${funcId} ORDER BY src.NAME`));
+                    } else if (url.searchParams.get('callees') === '1') {
+                        json(queryDb(db,
+                            `SELECT dst.ID as id, dst.NAME as name
+                             FROM FCALLS fc JOIN FUNCTIONS dst ON dst.ID=fc.DESTID
+                             WHERE fc.SOURCEID=${funcId} ORDER BY dst.NAME`));
+                    } else {
+                        json({ error: 'Specify callers=1 or callees=1' }, 400);
+                    }
                     return;
                 }
 
@@ -176,13 +164,15 @@ describe('REST API Endpoints (/api/...)', () => {
                     return;
                 }
 
-                // /api/projects/:pid/files
-                params = matchRoute(pathname, '/api/projects/:pid/files');
-                if (params) {
+                // /api/project_files?pid=N
+                if (pathname === '/api/project_files') {
+                    const pidParam = url.searchParams.get('pid');
+                    if (!pidParam) { json({ error: 'Missing pid' }, 400); return; }
+                    const pid = parseInt(pidParam, 10);
                     json(queryDb(db,
                         `SELECT f.FID as fid, f.NAME as name
                          FROM FILES f JOIN FILEPROJ fp ON fp.FID=f.FID
-                         WHERE fp.PID=${params.pid} ORDER BY f.NAME`));
+                         WHERE fp.PID=${pid} ORDER BY f.NAME`));
                     return;
                 }
 
@@ -225,38 +215,39 @@ describe('REST API Endpoints (/api/...)', () => {
         }
     });
 
-    it('GET /api/identifiers/:eid — returns a single identifier', async () => {
+    it('GET /api/identifier?eid=N — returns a single identifier with locations', async () => {
         // Get an EID first
         const { body: allBody } = await httpGet('/api/identifiers');
         const all = JSON.parse(allBody);
         const eid = all[0].eid;
 
-        const { body } = await httpGet(`/api/identifiers/${eid}`);
+        const { body } = await httpGet(`/api/identifier?eid=${eid}`);
         const data = JSON.parse(body);
         assert.ok(!Array.isArray(data), 'Should be a single object');
         assert.strictEqual(data.eid, eid);
         assert.ok('name' in data);
+        assert.ok('locations' in data, 'Should include locations array');
+        assert.ok(Array.isArray(data.locations));
     });
 
-    it('GET /api/identifiers/:eid — returns 404 for unknown', async () => {
-        const { status } = await httpGet('/api/identifiers/999999');
+    it('GET /api/identifier?eid=999999 — returns 404 for unknown', async () => {
+        const { status } = await httpGet('/api/identifier?eid=999999');
         assert.strictEqual(status, 404);
     });
 
-    it('GET /api/identifiers/:eid/locations — returns token locations', async () => {
+    it('GET /api/identifier?eid=N — locations have expected fields', async () => {
         const { body: allBody } = await httpGet('/api/identifiers');
         const all = JSON.parse(allBody);
         const eid = all[0].eid;
 
-        const { body } = await httpGet(`/api/identifiers/${eid}/locations`);
+        const { body } = await httpGet(`/api/identifier?eid=${eid}`);
         const data = JSON.parse(body);
-        assert.ok(Array.isArray(data));
-        assert.ok(data.length > 0, 'Should have at least one location');
-        assert.ok('fid' in data[0]);
-        assert.ok('offset' in data[0]);
-        assert.ok('file' in data[0]);
-        assert.ok('line' in data[0], 'Row should have line');
-        assert.ok('col' in data[0], 'Row should have col');
+        assert.ok(data.locations.length > 0, 'Should have at least one location');
+        assert.ok('fid' in data.locations[0]);
+        assert.ok('offset' in data.locations[0]);
+        assert.ok('file' in data.locations[0]);
+        assert.ok('line' in data.locations[0], 'Location should have line');
+        assert.ok('col' in data.locations[0], 'Location should have col');
     });
 
     // File endpoints
@@ -270,15 +261,16 @@ describe('REST API Endpoints (/api/...)', () => {
         assert.ok('name' in data[0]);
     });
 
-    it('GET /api/files/:fid/metrics — returns file metrics', async () => {
+    it('GET /api/filemetrics?fid=N — returns file metrics', async () => {
         const { body: filesBody } = await httpGet('/api/files');
         const files = JSON.parse(filesBody);
         const fid = files[0].fid;
 
-        const { body } = await httpGet(`/api/files/${fid}/metrics`);
+        const { body } = await httpGet(`/api/filemetrics?fid=${fid}`);
         const data = JSON.parse(body);
         assert.ok(!Array.isArray(data), 'Should be a single metrics object');
-        assert.ok('NLINE' in data || 'FID' in data, 'Should have metrics columns');
+        assert.ok('metrics' in data, 'Should have metrics field');
+        assert.ok('NLINE' in data.metrics || 'FID' in data.metrics, 'Metrics should have columns');
     });
 
     // Function endpoints
@@ -292,19 +284,18 @@ describe('REST API Endpoints (/api/...)', () => {
         assert.ok('id' in data[0]);
     });
 
-    it('GET /api/functions/:id/callers — returns callers', async () => {
+    it('GET /api/function?id=N&callers=1 — returns callers', async () => {
         const { body: funBody } = await httpGet('/api/functions');
         const funs = JSON.parse(funBody);
-        // Find a function that has callers (not main, which is typically only a caller)
-        const { body } = await httpGet(`/api/functions/${funs[0].id}/callers`);
+        const { body } = await httpGet(`/api/function?id=${funs[0].id}&callers=1`);
         const data = JSON.parse(body);
         assert.ok(Array.isArray(data), 'Should be an array');
     });
 
-    it('GET /api/functions/:id/callees — returns callees', async () => {
+    it('GET /api/function?id=N&callees=1 — returns callees', async () => {
         const { body: funBody } = await httpGet('/api/functions');
         const funs = JSON.parse(funBody);
-        const { body } = await httpGet(`/api/functions/${funs[0].id}/callees`);
+        const { body } = await httpGet(`/api/function?id=${funs[0].id}&callees=1`);
         const data = JSON.parse(body);
         assert.ok(Array.isArray(data), 'Should be an array');
     });
@@ -320,12 +311,12 @@ describe('REST API Endpoints (/api/...)', () => {
         assert.ok('name' in data[0]);
     });
 
-    it('GET /api/projects/:pid/files — returns project files', async () => {
+    it('GET /api/project_files?pid=N — returns project files', async () => {
         const { body: projBody } = await httpGet('/api/projects');
         const projects = JSON.parse(projBody);
         const pid = projects[0].pid;
 
-        const { body } = await httpGet(`/api/projects/${pid}/files`);
+        const { body } = await httpGet(`/api/project_files?pid=${pid}`);
         const data = JSON.parse(body);
         assert.ok(Array.isArray(data));
         assert.ok(data.length > 0, 'Project should have files');

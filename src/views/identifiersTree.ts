@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CScoutDatabase, CScoutIdentifier } from '../db/cscoutDatabase';
+import { CScoutDatabase } from '../db/cscoutDatabase';
 import type { CScoutServer, TokenLocation } from '../services/cscoutServer';
 
 interface IdentifierLike {
@@ -59,6 +59,14 @@ class IdentifierItem extends vscode.TreeItem {
     }
 }
 
+function toVscodeUri(filePath: string): vscode.Uri {
+    const wslMatch = filePath.match(/^\/mnt\/([a-z])\/(.*)/);
+    if (wslMatch) {
+        return vscode.Uri.file(`${wslMatch[1].toUpperCase()}:\\${wslMatch[2].replace(/\//g, '\\')}`);
+    }
+    return vscode.Uri.file(filePath);
+}
+
 class LocationItem extends vscode.TreeItem {
     constructor(filePath: string, line: number, column: number) {
         const basename = filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
@@ -70,7 +78,7 @@ class LocationItem extends vscode.TreeItem {
             command: 'vscode.open',
             title: 'Go to Location',
             arguments: [
-                vscode.Uri.file(filePath),
+                toVscodeUri(filePath),
                 { selection: new vscode.Range(line - 1, column, line - 1, column) },
             ],
         };
@@ -114,9 +122,9 @@ export class IdentifiersTreeProvider implements vscode.TreeDataProvider<Item> {
         if (!this.db && this.identifiers.length === 0) { return []; }
 
         if (!element) {
-                    return CATEGORIES.map(cat => {
+            return CATEGORIES.map(cat => {
                 const count = this.identifiers.filter(
-                    id => (id as any)[cat.key] === 1
+                    id => !!(id as any)[cat.key]
                 ).length;
                 return new CategoryItem(cat.key, cat.label, cat.icon, count);
             });
@@ -124,7 +132,7 @@ export class IdentifiersTreeProvider implements vscode.TreeDataProvider<Item> {
 
         if (element instanceof CategoryItem) {
             return this.identifiers
-                .filter(id => (id as any)[element.catKey] === 1)
+                .filter(id => !!(id as any)[element.catKey])
                 .slice(0, 200)
                 .map(id => new IdentifierItem(id));
         }

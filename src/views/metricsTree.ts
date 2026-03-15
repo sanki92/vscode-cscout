@@ -3,6 +3,16 @@ import * as path from 'path';
 import { CScoutDatabase } from '../db/cscoutDatabase';
 
 const DISPLAY_METRICS: { key: string; label: string }[] = [
+    { key: 'Number of lines', label: 'Lines' },
+    { key: 'Number of statements or declarations', label: 'Statements' },
+    { key: 'Number of operators', label: 'Operators' },
+    { key: 'Number of if statements', label: 'If statements' },
+    { key: 'Number of tokens', label: 'Tokens' },
+    { key: 'Number of unique project-scope identifiers', label: 'Unique identifiers' },
+    { key: 'Number of defined project-scope functions', label: 'Project-scope functions' },
+    { key: 'Number of defined file-scope (static) functions', label: 'Static functions' },
+    { key: 'Maximum level of statement nesting', label: 'Max statement nesting' },
+    // Same metrics under short names (real CScout REST API uses these keys)
     { key: 'NLINE', label: 'Lines' },
     { key: 'NSTMT', label: 'Statements' },
     { key: 'NOP', label: 'Operators' },
@@ -23,7 +33,7 @@ export class FileMetricItem extends vscode.TreeItem {
     ) {
         super(path.basename(fileName), vscode.TreeItemCollapsibleState.Collapsed);
         this.tooltip = fileName;
-        this.description = `${metrics.NLINE ?? metrics.nline ?? '?'} lines`;
+        this.description = `${metrics['Number of lines'] ?? metrics.NLINE ?? metrics.nline ?? '?'} lines`;
         this.iconPath = new vscode.ThemeIcon('file-code', new vscode.ThemeColor('charts.blue'));
     }
 }
@@ -88,8 +98,9 @@ export class MetricsTreeProvider implements vscode.TreeDataProvider<Item> {
         }
 
         if (element instanceof FileMetricItem) {
+            const seen = new Set<string>();
             return DISPLAY_METRICS
-                .filter(m => element.metrics[m.key] !== undefined)
+                .filter(m => element.metrics[m.key] !== undefined && !seen.has(m.label) && seen.add(m.label))
                 .map(m => new MetricDetail(m.label, element.metrics[m.key], element.fileName));
         }
 

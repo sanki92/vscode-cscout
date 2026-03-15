@@ -1,4 +1,15 @@
 import * as http from 'http';
+import * as net from 'net';
+import * as process from 'process';
+
+function normalizePath(p: string): string {
+    if (process.platform !== 'win32') { return p; }
+    const cyg = p.match(/^\/cygdrive\/([a-zA-Z])\/(.*)/);
+    if (cyg) { return cyg[1].toUpperCase() + ':/' + cyg[2]; }
+    const wsl = p.match(/^\/mnt\/([a-zA-Z])\/(.*)/);
+    if (wsl) { return wsl[1].toUpperCase() + ':/' + wsl[2]; }
+    return p;
+}
 
 
 
@@ -23,8 +34,9 @@ export interface ServerFile {
 
 export interface ServerFunction {
     name: string;
-    id: string;
-    isStatic: boolean;
+    id: number;
+    isFileScoped: boolean;
+    fanin: number;
 }
 
 export interface ServerMetric {
@@ -42,15 +54,6 @@ export interface TokenLocation {
 
 
 
-
-function extractLinks(html: string, pattern: RegExp): { href: string; text: string }[] {
-    const results: { href: string; text: string }[] = [];
-    let match;
-    while ((match = pattern.exec(html)) !== null) {
-        results.push({ href: match[1], text: match[2] });
-    }
-    return results;
-}
 
 function extractTableRows(html: string): string[][] {
     const rows: string[][] = [];
@@ -71,25 +74,29 @@ function extractTableRows(html: string): string[][] {
     return rows;
 }
 
-function getParam(href: string, param: string): string | undefined {
-    const match = new RegExp(`[?&]${param}=([^&]+)`).exec(href);
-    return match ? decodeURIComponent(match[1]) : undefined;
-}
 
 
 
 export class CScoutServer {
+    private host: string;
+    private port: number;
     private baseUrl: string;
     private _hasRestApi: boolean | undefined;
 
     constructor(host: string = 'localhost', port: number = 8081) {
+        this.host = host;
+        this.port = port;
         this.baseUrl = `http://${host}:${port}`;
     }
 
     async isAlive(): Promise<boolean> {
         try {
             const html = await this.get('/index.html');
-            return html.includes('CScout');
+            if (html.includes('CScout')) { return true; }
+        } catch { /* fall through */ }
+        try {
+            const resp = await this.get('/api/projects');
+            return resp.trim().startsWith('[');
         } catch {
             return false;
         }
@@ -117,50 +124,88 @@ export class CScoutServer {
 
     
 
-    async getIdentifiers(options?: { unused?: boolean; writable?: boolean }): Promise<ServerIdentifier[]> {
+    async getIdentifiers(options?: { unused?: boolean; writable?: boolean; limit?: number; offset?: number }): Promise<ServerIdentifier[]> {
         const params = new URLSearchParams();
         if (options?.unused) { params.set('unused', 'true'); }
         if (options?.writable) { params.set('writable', 'true'); }
+        if (options?.limit !== undefined) { params.set('limit', String(options.limit)); }
+        if (options?.offset !== undefined) { params.set('offset', String(options.offset)); }
         const qs = params.toString();
         const resp = await this.get(`/api/identifiers${qs ? '?' + qs : ''}`);
         return JSON.parse(resp);
     }
 
     async getIdentifierById(eid: string | number): Promise<ServerIdentifier> {
-        const resp = await this.get(`/api/identifiers/${eid}`);
+        const resp = await this.get(`/api/identifier?eid=${eid}`);
         return JSON.parse(resp);
     }
 
     async getIdentifierLocations(eid: string | number): Promise<TokenLocation[]> {
-        const resp = await this.get(`/api/identifiers/${eid}/locations`);
-        return JSON.parse(resp);
+        const resp = await this.get(`/api/identifier?eid=${eid}`);
+        const data = JSON.parse(resp);
+        const locs: TokenLocation[] = data.locations ?? [];
+        for (const loc of locs) {
+            loc.file = normalizePath(loc.file);
+            if (loc.col == null) { loc.col = 0; }
+        }
+        return locs;
     }
 
-    async getFiles(options?: { writable?: boolean }): Promise<ServerFile[]> {
-        const qs = options?.writable ? '?writable=true' : '';
-        const resp = await this.get(`/api/files${qs}`);
-        return JSON.parse(resp);
+    async getFiles(options?: { writable?: boolean; pid?: number; limit?: number; offset?: number }): Promise<ServerFile[]> {
+        const params = new URLSearchParams();
+        if (options?.writable) { params.set('writable', 'true'); }
+        if (options?.pid !== undefined) { params.set('pid', String(options.pid)); }
+        if (options?.limit !== undefined) { params.set('limit', String(options.limit)); }
+        if (options?.offset !== undefined) { params.set('offset', String(options.offset)); }
+        const qs = params.toString();
+        const resp = await this.get(`/api/files${qs ? '?' + qs : ''}`);
+        const data: ServerFile[] = JSON.parse(resp);
+        for (const f of data) { f.name = normalizePath(f.name); }
+        return data;
     }
 
     async getFileMetrics(fid: number): Promise<Record<string, any>> {
-        const resp = await this.get(`/api/files/${fid}/metrics`);
-        return JSON.parse(resp);
+        const resp = await this.get(`/api/filemetrics?fid=${fid}`);
+        const data = JSON.parse(resp);
+        return data.metrics ?? data;
     }
 
-    async getFunctions(options?: { defined?: boolean }): Promise<ServerFunction[]> {
-        const qs = options?.defined ? '?defined=true' : '';
-        const resp = await this.get(`/api/functions${qs}`);
-        return JSON.parse(resp);
+    async getFunctions(options?: { defined?: boolean; limit?: number; offset?: number }): Promise<ServerFunction[]> {
+        const params = new URLSearchParams();
+        if (options?.defined) { params.set('defined', 'true'); }
+        if (options?.limit !== undefined) { params.set('limit', String(options.limit)); }
+        if (options?.offset !== undefined) { params.set('offset', String(options.offset)); }
+        const qs = params.toString();
+        const resp = await this.get(`/api/functions${qs ? '?' + qs : ''}`);
+        const data = JSON.parse(resp);
+        return data.map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            isFileScoped: f.is_file_scoped ?? false,
+            fanin: f.fanin ?? 0,
+        }));
     }
 
     async getCallers(funcId: string | number): Promise<ServerFunction[]> {
-        const resp = await this.get(`/api/functions/${funcId}/callers`);
-        return JSON.parse(resp);
+        const resp = await this.get(`/api/function?id=${funcId}&callers=1`);
+        const data = JSON.parse(resp);
+        return (data.callers ?? data).map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            isFileScoped: f.is_file_scoped ?? false,
+            fanin: f.fanin ?? 0,
+        }));
     }
 
     async getCallees(funcId: string | number): Promise<ServerFunction[]> {
-        const resp = await this.get(`/api/functions/${funcId}/callees`);
-        return JSON.parse(resp);
+        const resp = await this.get(`/api/function?id=${funcId}&callees=1`);
+        const data = JSON.parse(resp);
+        return (data.callees ?? data).map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            isFileScoped: f.is_file_scoped ?? false,
+            fanin: f.fanin ?? 0,
+        }));
     }
 
     async getProjects(): Promise<{ pid: number; name: string }[]> {
@@ -169,11 +214,20 @@ export class CScoutServer {
     }
 
     async getProjectFiles(pid: number): Promise<ServerFile[]> {
-        const resp = await this.get(`/api/projects/${pid}/files`);
-        return JSON.parse(resp);
+        const resp = await this.get(`/api/project_files?pid=${pid}`);
+        const data: ServerFile[] = JSON.parse(resp);
+        for (const f of data) { f.name = normalizePath(f.name); }
+        return data;
     }
 
-    
+    async getSource(fid: number): Promise<{ fid: number; name: string; lines: string[] }> {
+        const resp = await this.get(`/api/source?fid=${fid}`);
+        const data = JSON.parse(resp);
+        data.name = normalizePath(data.name);
+        return data;
+    }
+
+
 
     async getWritableIdentifiers(): Promise<ServerIdentifier[]> {
         const html = await this.get('/xiquery.html?qi=1&match=Y&writable=1');
@@ -310,9 +364,10 @@ export class CScoutServer {
             if (!seen.has(name)) {
                 seen.add(name);
                 results.push({
-                    id: match[1],
+                    id: parseInt(match[1], 10),
                     name,
-                    isStatic: false,
+                    isFileScoped: false,
+                    fanin: 0,
                 });
             }
         }
@@ -341,11 +396,20 @@ export class CScoutServer {
     
 
     private get(path: string): Promise<string> {
+        return this.httpGet(path).catch((err: any) => {
+            if (err.httpStatus) { throw err; }
+            return this.tcpGet(path);
+        });
+    }
+
+    private httpGet(path: string): Promise<string> {
         return new Promise((resolve, reject) => {
             const url = `${this.baseUrl}${path}`;
             http.get(url, { timeout: 10000 }, (res) => {
                 if (res.statusCode !== 200) {
-                    reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+                    const err: any = new Error(`HTTP ${res.statusCode} from ${url}`);
+                    err.httpStatus = res.statusCode;
+                    reject(err);
                     res.resume();
                     return;
                 }
@@ -355,6 +419,67 @@ export class CScoutServer {
                 res.on('end', () => resolve(body));
                 res.on('error', reject);
             }).on('error', reject);
+        });
+    }
+
+    private tcpGet(path: string): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const socket = net.createConnection({ host: this.host, port: this.port });
+            let raw = '';
+            let settled = false;
+
+            const fail = (err: Error) => {
+                if (settled) { return; }
+                settled = true;
+                socket.destroy();
+                reject(err);
+            };
+
+            socket.setTimeout(12000);
+            socket.setEncoding('utf-8');
+
+            socket.on('connect', () => {
+                socket.write(
+                    `GET ${path} HTTP/1.0\r\n` +
+                    `Host: ${this.host}:${this.port}\r\n` +
+                    `Connection: close\r\n` +
+                    `\r\n`
+                );
+            });
+
+            socket.on('data', (chunk: string) => { raw += chunk; });
+
+            socket.on('end', () => {
+                if (settled) { return; }
+                settled = true;
+
+                const firstNewline = raw.indexOf('\n');
+                if (firstNewline === -1) {
+                    reject(new Error(`Empty response from ${path}`));
+                    return;
+                }
+
+                const statusLine = raw.substring(0, firstNewline).trim();
+                const statusMatch = /HTTP\/\S+\s+(\d+)/.exec(statusLine);
+                const code = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+                if (code < 200 || code >= 300) {
+                    reject(new Error(`HTTP ${code} for ${path}: ${statusLine}`));
+                    return;
+                }
+
+                let bodyStart = raw.indexOf('\r\n\r\n');
+                if (bodyStart !== -1) {
+                    bodyStart += 4;
+                } else {
+                    bodyStart = raw.indexOf('\n\n');
+                    bodyStart = bodyStart !== -1 ? bodyStart + 2 : firstNewline + 1;
+                }
+
+                resolve(raw.substring(bodyStart));
+            });
+
+            socket.on('timeout', () => fail(new Error(`Timeout fetching ${path}`)));
+            socket.on('error', (err: Error) => fail(err));
         });
     }
 }
