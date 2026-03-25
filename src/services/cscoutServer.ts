@@ -201,9 +201,9 @@ export class CScoutServer {
     }
 
     async getCallers(funcId: string | number): Promise<ServerFunction[]> {
-        const resp = await this.get(`/api/function?id=${funcId}&callers=1`);
+        const resp = await this.get(`/api/function_callers?id=${funcId}`);
         const data = JSON.parse(resp);
-        return (data.callers ?? data).map((f: any) => ({
+        return data.map((f: any) => ({
             id: f.id,
             name: f.name,
             isFileScoped: f.is_file_scoped ?? false,
@@ -212,9 +212,9 @@ export class CScoutServer {
     }
 
     async getCallees(funcId: string | number): Promise<ServerFunction[]> {
-        const resp = await this.get(`/api/function?id=${funcId}&callees=1`);
+        const resp = await this.get(`/api/function_callees?id=${funcId}`);
         const data = JSON.parse(resp);
-        return (data.callees ?? data).map((f: any) => ({
+        return data.map((f: any) => ({
             id: f.id,
             name: f.name,
             isFileScoped: f.is_file_scoped ?? false,
