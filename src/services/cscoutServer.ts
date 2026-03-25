@@ -147,14 +147,17 @@ export class CScoutServer {
         return data.total ?? 0;
     }
 
-    async getIdentifierById(eid: string | number): Promise<ServerIdentifier> {
+    private async fetchIdentifierDetail(eid: string | number): Promise<any> {
         const resp = await this.get(`/api/identifier?eid=${eid}`);
         return JSON.parse(resp);
     }
 
+    async getIdentifierById(eid: string | number): Promise<ServerIdentifier> {
+        return this.fetchIdentifierDetail(eid);
+    }
+
     async getIdentifierLocations(eid: string | number): Promise<TokenLocation[]> {
-        const resp = await this.get(`/api/identifier?eid=${eid}`);
-        const data = JSON.parse(resp);
+        const data = await this.fetchIdentifierDetail(eid);
         const locs: TokenLocation[] = data.locations ?? [];
         for (const loc of locs) {
             loc.file = normalizePath(loc.file);
@@ -327,9 +330,6 @@ export class CScoutServer {
 
     
 
-    async selectProject(pid: number): Promise<void> {
-        await this.get(`/setproj.html?projid=${pid}`);
-    }
 
     
 
