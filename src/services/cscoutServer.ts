@@ -14,16 +14,16 @@ function normalizePath(p: string): string {
 
 
 export interface ServerIdentifier {
-    eid: string;
+    eid: number;
     name: string;
-    unused: number;
-    macro: number;
-    fun: number;
-    typedef: number;
-    suetag: number;
-    sumember: number;
-    ordinary: number;
-    readonly: number;
+    unused: boolean;
+    macro: boolean;
+    fun: boolean;
+    typedef: boolean;
+    suetag: boolean;
+    sumember: boolean;
+    ordinary: boolean;
+    readonly: boolean;
 }
 
 export interface ServerFile {
@@ -338,17 +338,19 @@ export class CScoutServer {
         const results: ServerIdentifier[] = [];
         let match;
         while ((match = linkPattern.exec(html)) !== null) {
+            const raw = match[1];
+            const eid = raw.startsWith('0x') ? parseInt(raw, 16) : parseInt(raw, 10);
             results.push({
-                eid: match[1],
+                eid,
                 name: match[2].trim(),
-                unused: 0,
-                macro: 0,
-                fun: 0,
-                typedef: 0,
-                suetag: 0,
-                sumember: 0,
-                ordinary: 0,
-                readonly: 0,
+                unused: false,
+                macro: false,
+                fun: false,
+                typedef: false,
+                suetag: false,
+                sumember: false,
+                ordinary: false,
+                readonly: false,
             });
         }
         return results;

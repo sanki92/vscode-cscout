@@ -211,7 +211,7 @@ describe('REST API Endpoints (/api/...)', () => {
         assert.ok(Array.isArray(data));
         assert.ok(data.length > 0, 'Sample DB has unused identifiers');
         for (const id of data) {
-            assert.strictEqual(id.unused, 1, `${id.name} should be unused`);
+            assert.ok(id.unused, `${id.name} should be unused`);
         }
     });
 

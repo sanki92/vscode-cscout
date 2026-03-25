@@ -93,7 +93,7 @@ describe('CScoutServer HTML Parsers', () => {
             const ids = parseIdentifierLinks(html);
             assert.strictEqual(ids.length, 3);
             assert.strictEqual(ids[0].name, 'my_var');
-            assert.strictEqual(ids[0].eid, '0x55a1b2c3');
+            assert.strictEqual(ids[0].eid, parseInt('0x55a1b2c3', 16));
             assert.strictEqual(ids[1].name, 'another_func');
             assert.strictEqual(ids[2].name, 'MAX_BUF');
         });
