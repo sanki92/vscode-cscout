@@ -83,29 +83,28 @@ async function main() {
                 if (url.searchParams.get('writable') === 'true') { conditions.push('READONLY = 0'); }
                 if (conditions.length) { sql += ' WHERE ' + conditions.join(' AND '); }
                 sql += ' ORDER BY NAME';
-                json(res, queryDb(db, sql));
+                const rows = queryDb(db, sql);
+                const limit = parseInt(url.searchParams.get('limit') || '-1', 10);
+                const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+                const sliced = limit >= 0 ? rows.slice(offset, offset + limit) : rows.slice(offset);
+                json(res, { total: rows.length, items: sliced });
                 return;
             }
 
-            // GET /api/identifiers/:eid
-            let params = matchRoute(pathname, '/api/identifiers/:eid');
-            if (params) {
+            // GET /api/identifier?eid=N
+            if (pathname === '/api/identifier') {
+                const eid = url.searchParams.get('eid');
+                if (!eid) { json(res, { error: 'missing eid parameter' }, 400); return; }
                 const rows = queryDb(db,
                     `SELECT EID as eid, NAME as name,
                             UNUSED as unused, MACRO as macro,
                             FUN as fun, TYPEDEF as typedef,
                             SUETAG as suetag, SUMEMBER as sumember,
                             ORDINARY as ordinary, READONLY as readonly
-                     FROM IDS WHERE EID = ${params.eid}`);
-                if (rows.length === 0) { json(res, { error: 'Identifier not found' }, 404); }
-                else { json(res, rows[0]); }
-                return;
-            }
-
-            // GET /api/identifiers/:eid/locations
-            params = matchRoute(pathname, '/api/identifiers/:eid/locations');
-            if (params) {
-                const rows = queryDb(db,
+                     FROM IDS WHERE EID = ${eid}`);
+                if (rows.length === 0) { json(res, { error: 'unknown eid' }, 404); return; }
+                const id = rows[0];
+                const locs = queryDb(db,
                     `SELECT t.FID as fid, t.FOFFSET as offset, f.NAME as file,
                             lp.LNUM as line,
                             (t.FOFFSET - lp.FOFFSET) as col
@@ -116,9 +115,9 @@ async function main() {
                              SELECT MAX(FOFFSET) FROM LINEPOS
                              WHERE FID = t.FID AND FOFFSET <= t.FOFFSET
                          )
-                     WHERE t.EID = ${params.eid}
+                     WHERE t.EID = ${eid}
                      ORDER BY t.FID, t.FOFFSET`);
-                json(res, rows);
+                json(res, { ...id, locations: locs });
                 return;
             }
 
@@ -128,51 +127,75 @@ async function main() {
                 let sql = 'SELECT FID as fid, NAME as name, RO as readonly FROM FILES';
                 if (writable === 'true') { sql += ' WHERE RO = 0'; }
                 sql += ' ORDER BY NAME';
-                json(res, queryDb(db, sql));
+                const rows = queryDb(db, sql);
+                const limit = parseInt(url.searchParams.get('limit') || '-1', 10);
+                const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+                const sliced = limit >= 0 ? rows.slice(offset, offset + limit) : rows.slice(offset);
+                json(res, { total: rows.length, items: sliced });
                 return;
             }
 
-            // GET /api/files/:fid/metrics
-            params = matchRoute(pathname, '/api/files/:fid/metrics');
-            if (params) {
+            // GET /api/filemetrics?fid=N
+            if (pathname === '/api/filemetrics') {
+                const fid = url.searchParams.get('fid');
+                if (!fid) { json(res, { error: 'missing fid parameter' }, 400); return; }
                 const rows = queryDb(db,
-                    `SELECT * FROM FILEMETRICS WHERE FID = ${params.fid} AND PRECPP = 0`);
-                if (rows.length === 0) { json(res, { error: 'No metrics for this file' }, 404); }
-                else { json(res, rows[0]); }
+                    `SELECT * FROM FILEMETRICS WHERE FID = ${fid} AND PRECPP = 0`);
+                if (rows.length === 0) { json(res, { error: 'No metrics for this file' }, 404); return; }
+                json(res, { fid: parseInt(fid, 10), metrics: rows[0] });
                 return;
             }
 
             // GET /api/functions
             if (pathname === '/api/functions') {
                 const defined = url.searchParams.get('defined');
-                let sql = 'SELECT ID as id, NAME as name, FILESCOPED as isStatic FROM FUNCTIONS';
+                let sql = `SELECT ID as id, NAME as name, FILESCOPED as is_file_scoped,
+                           0 as fanin, 0 as fanout FROM FUNCTIONS`;
                 if (defined === 'true') { sql += ' WHERE DEFINED = 1'; }
                 sql += ' ORDER BY NAME';
-                json(res, queryDb(db, sql));
+                const rows = queryDb(db, sql);
+                const limit = parseInt(url.searchParams.get('limit') || '-1', 10);
+                const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+                const sliced = limit >= 0 ? rows.slice(offset, offset + limit) : rows.slice(offset);
+                json(res, { total: rows.length, items: sliced });
                 return;
             }
 
-            // GET /api/functions/:id/callers
-            params = matchRoute(pathname, '/api/functions/:id/callers');
-            if (params) {
+            // GET /api/function?id=N
+            if (pathname === '/api/function') {
+                const id = url.searchParams.get('id');
+                if (!id) { json(res, { error: 'missing id parameter' }, 400); return; }
+                const rows = queryDb(db,
+                    `SELECT ID as id, NAME as name, FILESCOPED as is_file_scoped
+                     FROM FUNCTIONS WHERE ID = ${id}`);
+                if (rows.length === 0) { json(res, { error: 'unknown function id' }, 404); return; }
+                json(res, rows[0]);
+                return;
+            }
+
+            // GET /api/function_callers?id=N
+            if (pathname === '/api/function_callers') {
+                const id = url.searchParams.get('id');
+                if (!id) { json(res, { error: 'missing id parameter' }, 400); return; }
                 const rows = queryDb(db,
                     `SELECT src.ID as id, src.NAME as name
                      FROM FCALLS fc
                      JOIN FUNCTIONS src ON src.ID = fc.SOURCEID
-                     WHERE fc.DESTID = ${params.id}
+                     WHERE fc.DESTID = ${id}
                      ORDER BY src.NAME`);
                 json(res, rows);
                 return;
             }
 
-            // GET /api/functions/:id/callees
-            params = matchRoute(pathname, '/api/functions/:id/callees');
-            if (params) {
+            // GET /api/function_callees?id=N
+            if (pathname === '/api/function_callees') {
+                const id = url.searchParams.get('id');
+                if (!id) { json(res, { error: 'missing id parameter' }, 400); return; }
                 const rows = queryDb(db,
                     `SELECT dst.ID as id, dst.NAME as name
                      FROM FCALLS fc
                      JOIN FUNCTIONS dst ON dst.ID = fc.DESTID
-                     WHERE fc.SOURCEID = ${params.id}
+                     WHERE fc.SOURCEID = ${id}
                      ORDER BY dst.NAME`);
                 json(res, rows);
                 return;
@@ -184,14 +207,15 @@ async function main() {
                 return;
             }
 
-            // GET /api/projects/:pid/files
-            params = matchRoute(pathname, '/api/projects/:pid/files');
-            if (params) {
+            // GET /api/project_files?pid=N
+            if (pathname === '/api/project_files') {
+                const pid = url.searchParams.get('pid');
+                if (!pid) { json(res, { error: 'missing pid parameter' }, 400); return; }
                 const rows = queryDb(db,
                     `SELECT f.FID as fid, f.NAME as name
                      FROM FILES f
                      JOIN FILEPROJ fp ON fp.FID = f.FID
-                     WHERE fp.PID = ${params.pid}
+                     WHERE fp.PID = ${pid}
                      ORDER BY f.NAME`);
                 json(res, rows);
                 return;
