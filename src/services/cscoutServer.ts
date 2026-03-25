@@ -132,7 +132,19 @@ export class CScoutServer {
         if (options?.offset !== undefined) { params.set('offset', String(options.offset)); }
         const qs = params.toString();
         const resp = await this.get(`/api/identifiers${qs ? '?' + qs : ''}`);
-        return JSON.parse(resp);
+        const data = JSON.parse(resp);
+        return Array.isArray(data) ? data : data.items;
+    }
+
+    async getIdentifiersTotal(options?: { unused?: boolean; writable?: boolean }): Promise<number> {
+        const params = new URLSearchParams();
+        if (options?.unused) { params.set('unused', 'true'); }
+        if (options?.writable) { params.set('writable', 'true'); }
+        params.set('limit', '0');
+        const qs = params.toString();
+        const resp = await this.get(`/api/identifiers?${qs}`);
+        const data = JSON.parse(resp);
+        return data.total ?? 0;
     }
 
     async getIdentifierById(eid: string | number): Promise<ServerIdentifier> {
@@ -159,7 +171,8 @@ export class CScoutServer {
         if (options?.offset !== undefined) { params.set('offset', String(options.offset)); }
         const qs = params.toString();
         const resp = await this.get(`/api/files${qs ? '?' + qs : ''}`);
-        const data: ServerFile[] = JSON.parse(resp);
+        const parsed = JSON.parse(resp);
+        const data: ServerFile[] = Array.isArray(parsed) ? parsed : parsed.items;
         for (const f of data) { f.name = normalizePath(f.name); }
         return data;
     }
@@ -177,7 +190,8 @@ export class CScoutServer {
         if (options?.offset !== undefined) { params.set('offset', String(options.offset)); }
         const qs = params.toString();
         const resp = await this.get(`/api/functions${qs ? '?' + qs : ''}`);
-        const data = JSON.parse(resp);
+        const parsed = JSON.parse(resp);
+        const data = Array.isArray(parsed) ? parsed : parsed.items;
         return data.map((f: any) => ({
             id: f.id,
             name: f.name,
