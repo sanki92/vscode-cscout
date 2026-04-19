@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CScoutServer } from "./services/cscoutServer";
 import { IdentifierDefinitionProvider } from "./providers/definitionProvider";
 import { CScoutHoverProvider } from "./providers/hoverProvider";
+import { IdentifierRenameProvider } from "./providers/renameProvider";
 import { CScoutDiagnostics } from "./providers/diagnosticsProvider";
 import { ProjectsTreeProvider } from "./views/projectsTree";
 import { MetricsTreeProvider, FileMetricItem } from "./views/metricsTree";
@@ -69,6 +70,7 @@ export function activate(context: vscode.ExtensionContext) {
   const callGraphTree = new CallGraphTreeProvider();
   const hoverProvider = new CScoutHoverProvider(() => server);
   const definitionProvider = new IdentifierDefinitionProvider(() => server);
+  const renameProvider = new IdentifierRenameProvider(() => server);
 
   vscode.window.registerTreeDataProvider("cscout.projectsView", projectsTree);
   const metricsView = vscode.window.createTreeView("cscout.metricsView", {
@@ -237,6 +239,7 @@ export function activate(context: vscode.ExtensionContext) {
         callGraphTree,
         hoverProvider,
         definitionProvider,
+        renameProvider,
       );
     }),
   );
@@ -250,6 +253,10 @@ export function activate(context: vscode.ExtensionContext) {
       { language: "c" },
       hoverProvider,
     ),
+    vscode.languages.registerRenameProvider(
+      { scheme: "file", language: "c" },
+      renameProvider,
+    ),
   );
 
   context.subscriptions.push(
@@ -262,6 +269,7 @@ export function activate(context: vscode.ExtensionContext) {
       callGraphTree.clear();
       hoverProvider.updateCache([]);
       definitionProvider.updateCache([]);
+      renameProvider.updateCache([]);
       CScoutDiagnostics.clear();
       vscode.window.showInformationMessage("CScout: Disconnected from server.");
       outputChannel.appendLine("Disconnected.");
@@ -284,6 +292,7 @@ export function activate(context: vscode.ExtensionContext) {
         callGraphTree,
         hoverProvider,
         definitionProvider,
+        renameProvider,
       );
     }),
   );
@@ -301,6 +310,7 @@ async function loadFromServer(
   callGraphTree: CallGraphTreeProvider,
   hoverProvider: CScoutHoverProvider,
   definitionProvider: IdentifierDefinitionProvider,
+  renameProvider: IdentifierRenameProvider,
 ) {
   if (!server) {
     return;
@@ -377,6 +387,7 @@ async function loadFromServer(
           callGraphTree.loadData(functions, server!);
           hoverProvider.updateCache(identifiers);
           definitionProvider.updateCache(identifiers);
+          renameProvider.updateCache(identifiers);
 
           progress.report({ message: "Computing diagnostics…" });
           await CScoutDiagnostics.refresh(server!);
@@ -399,6 +410,7 @@ async function loadFromServer(
           callGraphTree.loadData(functions, server!);
           hoverProvider.updateCache(identifiers);
           definitionProvider.updateCache(identifiers);
+          renameProvider.updateCache(identifiers);
 
           outputChannel.appendLine(
             `HTML scrape: ${identifiers.length} identifiers, ${files.length} files, ${functions.length} functions`,

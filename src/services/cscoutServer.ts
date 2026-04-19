@@ -52,6 +52,28 @@ export interface TokenLocation {
     col: number;
 }
 
+export interface RefactorReplacement {
+    line: number;
+    offset: number;
+}
+
+export interface RefactorFileChange {
+    fid: number;
+    file: string;
+    readonly: boolean;
+    replacements: RefactorReplacement[];
+}
+
+export interface RefactorPreview {
+    eid: number;
+    old_name: string;
+    new_name: string;
+    old_length: number;
+    affected_files: number;
+    total_replacements: number;
+    changes: RefactorFileChange[];
+}
+
 
 
 
@@ -244,6 +266,37 @@ export class CScoutServer {
         return data;
     }
 
+    async previewRefactor(eid: number | string, newname: string): Promise<RefactorPreview> {
+        const params = new URLSearchParams();
+        params.set('eid', String(eid));
+        params.set('newname', newname);
+        try {
+            const resp = await this.get(`/api/refactor?${params.toString()}`);
+            const data = JSON.parse(resp);
+            for (const change of data.changes as RefactorFileChange[]) {
+                change.file = normalizePath(change.file);
+            }
+            return data as RefactorPreview;
+        } catch (err: any) {
+            const body = err && typeof err.body === 'string' ? err.body : '';
+            if (body.length > 0) {
+                let serverMessage: string | undefined;
+                try {
+                    const parsed = JSON.parse(body);
+                    if (parsed && typeof parsed.error === 'string') {
+                        serverMessage = parsed.error;
+                    }
+                } catch {
+                    serverMessage = undefined;
+                }
+                if (serverMessage) {
+                    throw new Error(serverMessage);
+                }
+            }
+            throw err;
+        }
+    }
+
 
 
     async getWritableIdentifiers(): Promise<ServerIdentifier[]> {
@@ -422,17 +475,20 @@ export class CScoutServer {
         return new Promise((resolve, reject) => {
             const url = `${this.baseUrl}${path}`;
             http.get(url, { timeout: 10000 }, (res) => {
-                if (res.statusCode !== 200) {
-                    const err: any = new Error(`HTTP ${res.statusCode} from ${url}`);
-                    err.httpStatus = res.statusCode;
-                    reject(err);
-                    res.resume();
-                    return;
-                }
+                const status = res.statusCode ?? 0;
                 let body = '';
                 res.setEncoding('utf-8');
                 res.on('data', (chunk: string) => { body += chunk; });
-                res.on('end', () => resolve(body));
+                res.on('end', () => {
+                    if (status === 200) {
+                        resolve(body);
+                    } else {
+                        const err: any = new Error(`HTTP ${status} from ${url}`);
+                        err.httpStatus = status;
+                        err.body = body;
+                        reject(err);
+                    }
+                });
                 res.on('error', reject);
             }).on('error', reject);
         });

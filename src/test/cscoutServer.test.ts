@@ -14,12 +14,14 @@ import * as assert from 'assert';
 // For parser-only tests, we replicate the parser logic here.
 
 /** Replicate the link extraction pattern from CScoutServer */
-function parseIdentifierLinks(html: string): { eid: string; name: string }[] {
+function parseIdentifierLinks(html: string): { eid: number; name: string }[] {
     const linkPattern = /<a\s+href="id\.html\?id=([^"]+)"[^>]*>([^<]+)<\/a>/gi;
-    const results: { eid: string; name: string }[] = [];
+    const results: { eid: number; name: string }[] = [];
     let match;
     while ((match = linkPattern.exec(html)) !== null) {
-        results.push({ eid: match[1], name: match[2].trim() });
+        const raw = match[1];
+        const eid = raw.startsWith('0x') ? parseInt(raw, 16) : parseInt(raw, 10);
+        results.push({ eid, name: match[2].trim() });
     }
     return results;
 }
