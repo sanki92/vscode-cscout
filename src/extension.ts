@@ -70,7 +70,13 @@ export function activate(context: vscode.ExtensionContext) {
   const callGraphTree = new CallGraphTreeProvider();
   const hoverProvider = new CScoutHoverProvider(() => server);
   const definitionProvider = new IdentifierDefinitionProvider(() => server);
-  const renameProvider = new IdentifierRenameProvider(() => server);
+  const renameProvider = new IdentifierRenameProvider(
+    () => server,
+    (eid, oldName, newName) => {
+      hoverProvider.renameEntry(eid, oldName, newName);
+      definitionProvider.renameEntry(eid, oldName, newName);
+    },
+  );
 
   vscode.window.registerTreeDataProvider("cscout.projectsView", projectsTree);
   const metricsView = vscode.window.createTreeView("cscout.metricsView", {

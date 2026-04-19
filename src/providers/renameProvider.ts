@@ -9,12 +9,19 @@ function isValidCIdentifier(name: string): boolean {
     return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
 }
 
+export type RenameApplied = (eid: number | string, oldName: string, newName: string) => void;
+
 export class IdentifierRenameProvider implements vscode.RenameProvider {
     private _cache = new Map<string, ServerIdentifier[]>();
     private _getServer: () => CScoutServer | undefined;
+    private _onRenameApplied: RenameApplied | undefined;
 
-    constructor(getServer: () => CScoutServer | undefined) {
+    constructor(
+        getServer: () => CScoutServer | undefined,
+        onRenameApplied?: RenameApplied,
+    ) {
         this._getServer = getServer;
+        this._onRenameApplied = onRenameApplied;
     }
 
     updateCache(identifiers: ServerIdentifier[]): void {
@@ -24,6 +31,24 @@ export class IdentifierRenameProvider implements vscode.RenameProvider {
             bucket.push(id);
             this._cache.set(id.name, bucket);
         }
+    }
+
+    renameEntry(eid: number | string, oldName: string, newName: string): void {
+        const bucket = this._cache.get(oldName);
+        if (!bucket) { return; }
+        const matches = bucket.filter((id) => id.eid === eid);
+        const rest = bucket.filter((id) => id.eid !== eid);
+        if (rest.length > 0) {
+            this._cache.set(oldName, rest);
+        } else {
+            this._cache.delete(oldName);
+        }
+        if (matches.length === 0) { return; }
+        const target = this._cache.get(newName) ?? [];
+        for (const id of matches) {
+            target.push({ ...id, name: newName });
+        }
+        this._cache.set(newName, target);
     }
 
     async prepareRename(
@@ -109,6 +134,10 @@ export class IdentifierRenameProvider implements vscode.RenameProvider {
                 const end = start.translate(0, preview.old_length);
                 edit.replace(uri, new vscode.Range(start, end), preview.new_name);
             }
+        }
+        this.renameEntry(eid, oldName, newName);
+        if (this._onRenameApplied) {
+            this._onRenameApplied(eid, oldName, newName);
         }
         return edit;
     }

@@ -16,6 +16,13 @@ export class CScoutHoverProvider implements vscode.HoverProvider {
         }
     }
 
+    renameEntry(eid: number | string, oldName: string, newName: string): void {
+        const existing = this._cache.get(oldName);
+        if (!existing || existing.eid !== eid) { return; }
+        this._cache.delete(oldName);
+        this._cache.set(newName, { ...existing, name: newName });
+    }
+
     provideHover(
         document: vscode.TextDocument,
         position: vscode.Position,

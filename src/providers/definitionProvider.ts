@@ -19,6 +19,24 @@ export class IdentifierDefinitionProvider implements vscode.DefinitionProvider {
     }
   }
 
+  renameEntry(eid: number | string, oldName: string, newName: string): void {
+    const bucket = this._cache.get(oldName);
+    if (!bucket) { return; }
+    const matches = bucket.filter((id) => id.eid === eid);
+    const rest = bucket.filter((id) => id.eid !== eid);
+    if (rest.length > 0) {
+      this._cache.set(oldName, rest);
+    } else {
+      this._cache.delete(oldName);
+    }
+    if (matches.length === 0) { return; }
+    const target = this._cache.get(newName) ?? [];
+    for (const id of matches) {
+      target.push({ ...id, name: newName });
+    }
+    this._cache.set(newName, target);
+  }
+
   async provideDefinition(
     document: vscode.TextDocument,
     position: vscode.Position,
